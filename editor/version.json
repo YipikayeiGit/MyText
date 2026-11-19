@@ -1,5 +1,5 @@
 {
-  "version": "1.0.2",
+  "version": "1.0.3",
   "minApp": "1.0.0",
-  "notas": "Corrige que al abrir un archivo con doble clic apareciera el documento anterior"
+  "notas": "Nunca reaparece un documento anterior al abrir otro archivo"
 }

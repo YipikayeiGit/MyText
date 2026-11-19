@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
 <title>MyText</title>
-<meta name="mytext-version" content="1.0.2">
+<meta name="mytext-version" content="1.0.3">
 <style>
   :root{
     --bg:#e6e8ec; --bar:#ffffff; --line:#d5d9e0; --ink:#1f2430; --muted:#6b7280;
@@ -2039,7 +2039,25 @@ if (window.mytext) (function(){
     return true;
   };
   // Si el programa se abrió con un archivo, no recuperar el documento anterior
-  if (M.info.archivoInicial) window.__mytextSinRestaurar = true;
+  // Solo se recupera el documento anterior si quedó con cambios sin guardar (p. ej. un cierre inesperado)
+  // o si el editor se está recargando por una actualización. Nunca si MyText se abrió con un archivo.
+  let recargando = false;
+  try {
+    recargando = localStorage.getItem('mytext-recargando') === '1';
+    localStorage.removeItem('mytext-recargando');
+    const est = JSON.parse(localStorage.getItem('mytext-estado') || 'null');
+    const pendiente = !!(est && est.modificado);
+    if (M.info.archivoInicial || (!pendiente && !recargando)){
+      window.__mytextSinRestaurar = true;
+      ['editor-contenido', 'editor-nombre', 'mytext-estado'].forEach(k => localStorage.removeItem(k));
+    }
+  } catch(e){}
+  // Al cerrar la ventana sin cambios pendientes, no dejar nada guardado que pueda reaparecer
+  let saliendoPorActualizacion = false;
+  window.addEventListener('pagehide', () => {
+    if (saliendoPorActualizacion) return;
+    if (!window.__mytextModificado) window.__mytextDescartar();
+  });
   nombreDoc.addEventListener('input', titulo);
 
   // Las exportaciones escriben en disco en vez de descargar
@@ -2184,9 +2202,11 @@ if (window.mytext) (function(){
   M.alProgreso(p => { const e = $('mtProg'); if (e) e.textContent = p + '%'; });
   async function actualizarEditor(){
     guardarAhora();
+    saliendoPorActualizacion = true;
+    try { localStorage.setItem('mytext-recargando', '1'); } catch(e){}
     banner.innerHTML = 'Actualizando el editor…';
     const res = await M.actualizarEditor();
-    if (!res.ok){ banner.innerHTML = 'No se pudo actualizar: ' + escapar(res.error || '') + ' <button class="cerrar" id="mtCerrarBanner">✕</button>'; $('mtCerrarBanner').onclick = () => banner.classList.remove('visible'); }
+    if (!res.ok){ saliendoPorActualizacion = false; try { localStorage.removeItem('mytext-recargando'); } catch(e){} banner.innerHTML = 'No se pudo actualizar: ' + escapar(res.error || '') + ' <button class="cerrar" id="mtCerrarBanner">✕</button>'; $('mtCerrarBanner').onclick = () => banner.classList.remove('visible'); }
   }
   async function buscarActualizaciones(silencioso){
     if (!silencioso) aviso('Buscando actualizaciones…');
