@@ -270,17 +270,48 @@ ipcMain.handle('nueva-ventana', () => { crearVentana(null); return true; });
 ipcMain.handle('recientes', () => recientes());
 ipcMain.on('titulo', (e, t) => { const w = ventanaDe(e); if (w) w.setTitle(String(t)); });
 
-ipcMain.handle('pdf', async (e, nombre) => {
+// Guardar como: elegir carpeta, nombre y formato (el formato sale de la extensión elegida)
+const FORMATOS = [
+  { name: 'Documento de Word (.docx)', extensions: ['docx'] },
+  { name: 'Documento de Word 97-2003 (.doc)', extensions: ['doc'] },
+  { name: 'OpenDocument (.odt)', extensions: ['odt'] },
+  { name: 'Texto enriquecido (.rtf)', extensions: ['rtf'] },
+  { name: 'PDF (.pdf)', extensions: ['pdf'] },
+  { name: 'Página web (.html)', extensions: ['html'] },
+  { name: 'Texto sin formato (.txt)', extensions: ['txt'] },
+  { name: 'Markdown (.md)', extensions: ['md'] }
+];
+ipcMain.handle('elegir-ruta', async (e, { nombre, ext, soloPdf }) => {
   const win = ventanaDe(e);
+  let filtros = soloPdf ? FORMATOS.filter(f => f.extensions[0] === 'pdf') : [...FORMATOS];
+  const i = filtros.findIndex(f => f.extensions.includes(ext));
+  if (i > 0) filtros = [filtros[i], ...filtros.filter((_, k) => k !== i)];   // el formato actual, primero
   const r = await dialog.showSaveDialog(win, {
-    title: 'Guardar como PDF', defaultPath: path.join(ultimaCarpeta || app.getPath('documents'), nombre),
-    filters: [FILTROS.pdf]
+    title: 'Guardar como', defaultPath: path.join(ultimaCarpeta || app.getPath('documents'), nombre), filters: filtros
   });
   if (r.canceled || !r.filePath) return null;
+  let f = r.filePath;
+  if (!path.extname(f)) f += '.' + (ext || 'docx');
+  return f;
+});
+
+ipcMain.handle('pdf', async (e, arg) => {
+  const win = ventanaDe(e);
+  const { nombre, ruta } = typeof arg === 'string' ? { nombre: arg, ruta: null } : arg;
+  let destino = ruta;
+  if (!destino) {
+    const r = await dialog.showSaveDialog(win, {
+      title: 'Guardar como PDF', defaultPath: path.join(ultimaCarpeta || app.getPath('documents'), nombre),
+      filters: [FILTROS.pdf]
+    });
+    if (r.canceled || !r.filePath) return null;
+    destino = r.filePath;
+  }
   try {
     const datos = await win.webContents.printToPDF({ pageSize: 'A4', printBackground: true, preferCSSPageSize: true });
-    await fs.promises.writeFile(r.filePath, datos);
-    return r.filePath;
+    await fs.promises.writeFile(destino, datos);
+    anadirReciente(destino);
+    return destino;
   } catch (err) { dialog.showErrorBox('MyText', 'No se pudo crear el PDF:\n' + err.message); return null; }
 });
 

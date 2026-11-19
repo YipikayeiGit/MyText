@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
 <title>MyText</title>
-<meta name="mytext-version" content="1.0.5">
+<meta name="mytext-version" content="1.0.6">
 <style>
   :root{
     --bg:#e6e8ec; --bar:#ffffff; --line:#d5d9e0; --ink:#1f2430; --muted:#6b7280;
@@ -265,6 +265,9 @@
       <button data-accion="abrir">Abrir… <kbd>Ctrl+O</kbd></button>
       <hr>
       <button data-accion="guardar-docx">Guardar como Word (.docx) <kbd>Ctrl+S</kbd></button>
+      <button data-accion="guardar-doc">Guardar como Word 97-2003 (.doc)</button>
+      <button data-accion="guardar-odt">Guardar como OpenDocument (.odt)</button>
+      <button data-accion="guardar-rtf">Guardar como texto enriquecido (.rtf)</button>
       <button data-accion="guardar-pdf">Guardar como PDF</button>
       <button data-accion="guardar-html">Guardar como HTML</button>
       <button data-accion="guardar-txt">Guardar como texto (.txt)</button>
@@ -751,6 +754,9 @@ const acciones = {
   },
   abrir(){ $('archivo').value = ''; $('archivo').click(); },
   'guardar-docx': () => exportarDocx(),
+  'guardar-doc': () => exportarDoc(),
+  'guardar-odt': () => exportarOdt(),
+  'guardar-rtf': () => exportarRtf(),
   'guardar-html'(){
     const html = `<!DOCTYPE html>\n<html lang="es"><head><meta charset="UTF-8"><title>${escapar(nombreDoc.value)}</title>
 <style>body{font-family:Calibri,sans-serif;font-size:12pt;line-height:1.5;max-width:800px;margin:40px auto;padding:0 20px}table{border-collapse:collapse}td,th{border:1px solid #999;padding:5px 8px}@media print{body{margin:0;max-width:none}}${cssTitulos('body', false)}</style>
@@ -1174,27 +1180,114 @@ async function leerOdt(file){
   const zip = await JSZip.loadAsync(await file.arrayBuffer());
   const xml = await zip.file('content.xml').async('string');
   const doc = new DOMParser().parseFromString(xml, 'application/xml');
-  const TEXT = 'urn:oasis:names:tc:opendocument:xmlns:text:1.0';
-  const cuerpo = doc.getElementsByTagNameNS('urn:oasis:names:tc:opendocument:xmlns:office:1.0', 'text')[0];
+  const NS = {
+    text: 'urn:oasis:names:tc:opendocument:xmlns:text:1.0', office: 'urn:oasis:names:tc:opendocument:xmlns:office:1.0',
+    style: 'urn:oasis:names:tc:opendocument:xmlns:style:1.0', fo: 'urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0',
+    table: 'urn:oasis:names:tc:opendocument:xmlns:table:1.0', draw: 'urn:oasis:names:tc:opendocument:xmlns:drawing:1.0',
+    xlink: 'http://www.w3.org/1999/xlink', svg: 'urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0'
+  };
+  // Estilos (de content.xml y styles.xml)
+  const estilosOdt = {};
+  const leerEstilos = d => d.getElementsByTagNameNS(NS.style, 'style').length && [...d.getElementsByTagNameNS(NS.style, 'style')].forEach(e => {
+    const nombre = e.getAttributeNS(NS.style, 'name'), padre = e.getAttributeNS(NS.style, 'parent-style-name');
+    const tp = e.getElementsByTagNameNS(NS.style, 'text-properties')[0], pp = e.getElementsByTagNameNS(NS.style, 'paragraph-properties')[0];
+    const g = (el, ns, at) => el ? el.getAttributeNS(ns, at) : '';
+    let t = '', pr = '', salto = false;
+    if (tp){
+      if (/bold|[6-9]00/.test(g(tp, NS.fo, 'font-weight'))) t += 'font-weight:bold;';
+      if (/italic|oblique/.test(g(tp, NS.fo, 'font-style'))) t += 'font-style:italic;';
+      const dec = [g(tp, NS.style, 'text-underline-style') && g(tp, NS.style, 'text-underline-style') !== 'none' ? 'underline' : '', g(tp, NS.style, 'text-line-through-style') && g(tp, NS.style, 'text-line-through-style') !== 'none' ? 'line-through' : ''].filter(Boolean).join(' ');
+      if (dec) t += 'text-decoration:' + dec + ';';
+      const pos = g(tp, NS.style, 'text-position'); if (/^super/.test(pos)) t += 'vertical-align:super;font-size:smaller;'; else if (/^sub/.test(pos)) t += 'vertical-align:sub;font-size:smaller;';
+      const col = g(tp, NS.fo, 'color'); if (col && !/^#000000$/i.test(col)) t += 'color:' + col + ';';
+      const bg = g(tp, NS.fo, 'background-color'); if (bg && bg !== 'transparent') t += 'background-color:' + bg + ';';
+      const fs = g(tp, NS.fo, 'font-size'); if (fs && /pt$/.test(fs) && parseFloat(fs) !== 12) t += 'font-size:' + fs + ';';
+      const ff = g(tp, NS.fo, 'font-family') || g(tp, NS.style, 'font-name'); if (ff && !/calibri|carlito|liberation serif|times new roman/i.test(ff)) t += `font-family:'${ff.replace(/'/g, '')}';`;
+    }
+    if (pp){
+      const al = g(pp, NS.fo, 'text-align'); if (/center/.test(al)) pr += 'text-align:center;'; else if (/end|right/.test(al)) pr += 'text-align:right;'; else if (/justify/.test(al)) pr += 'text-align:justify;';
+      const lh = g(pp, NS.fo, 'line-height'); if (/%$/.test(lh) && parseFloat(lh) !== 150 && parseFloat(lh) !== 100) pr += 'line-height:' + (parseFloat(lh) / 100) + ';';
+      if (g(pp, NS.fo, 'break-before') === 'page') salto = 'antes';
+      if (g(pp, NS.fo, 'break-after') === 'page') salto = 'despues';
+    }
+    estilosOdt[nombre] = {t, pr, salto, padre};
+  });
+  try { const sx = zip.file('styles.xml'); if (sx) leerEstilos(new DOMParser().parseFromString(await sx.async('string'), 'application/xml')); } catch(e){}
+  leerEstilos(doc);
+  const est = (nombre, campo) => { let e = estilosOdt[nombre], v = '', guard = 0; while (e && guard++ < 10){ if (e[campo]){ v = e[campo]; break; } e = estilosOdt[e.padre]; } return v; };
+  // Imágenes incrustadas
+  const imgs = {};
+  for (const f of Object.keys(zip.files)) if (/^Pictures\/./.test(f) && !zip.files[f].dir){ const ext = f.split('.').pop().toLowerCase(); imgs[f] = `data:image/${ext === 'jpg' ? 'jpeg' : ext === 'svg' ? 'svg+xml' : ext};base64,` + await zip.file(f).async('base64'); }
+  const SALTO = '<div class="salto-pagina" contenteditable="false"></div>';
   function conv(n){
     let h = '';
     n.childNodes.forEach(c => {
-      if (c.nodeType === 3) { h += escapar(c.nodeValue); return; }
-      if (c.namespaceURI !== TEXT) { h += conv(c); return; }
-      switch (c.localName){
-        case 'h': { const l = Math.min(parseInt(c.getAttributeNS(TEXT,'outline-level')) || 1, 3); h += `<h${l}>${conv(c)}</h${l}>`; break; }
-        case 'p': h += '<p>' + (conv(c) || '<br>') + '</p>'; break;
-        case 'list': h += '<ul>' + conv(c) + '</ul>'; break;
-        case 'list-item': h += '<li>' + conv(c) + '</li>'; break;
-        case 'line-break': h += '<br>'; break;
-        case 'tab': h += '&emsp;'; break;
-        case 's': h += '&nbsp;'.repeat(parseInt(c.getAttributeNS(TEXT,'c')) || 1); break;
-        default: h += conv(c);
+      if (c.nodeType === 3){ h += escapar(c.nodeValue); return; }
+      if (c.nodeType !== 1) return;
+      const nombreEst = c.getAttributeNS(NS.text, 'style-name') || c.getAttributeNS(NS.table, 'style-name') || '';
+      if (c.namespaceURI === NS.text){
+        switch (c.localName){
+          case 'h': {
+            const l = Math.min(parseInt(c.getAttributeNS(NS.text, 'outline-level')) || 1, 3), pr = est(nombreEst, 'pr'), sl = est(nombreEst, 'salto');
+            h += (sl === 'antes' ? SALTO : '') + `<h${l}${pr ? ` style="${pr}"` : ''}>${conv(c) || '<br>'}</h${l}>` + (sl === 'despues' ? SALTO : ''); return;
+          }
+          case 'p': {
+            const pr = est(nombreEst, 'pr'), t = est(nombreEst, 't'), sl = est(nombreEst, 'salto');
+            let dentro = conv(c);
+            if (t && dentro) dentro = `<span style="${t}">${dentro}</span>`;
+            h += (sl === 'antes' ? SALTO : '') + `<p${pr ? ` style="${pr}"` : ''}>${dentro || '<br>'}</p>` + (sl === 'despues' ? SALTO : ''); return;
+          }
+          case 'span': { const t = est(nombreEst, 't'); const d = conv(c); h += t ? `<span style="${t}">${d}</span>` : d; return; }
+          case 'a': h += `<a href="${escapar(c.getAttributeNS(NS.xlink, 'href') || '')}">${conv(c)}</a>`; return;
+          case 'list': {
+            const ls = c.getAttributeNS(NS.text, 'style-name');
+            const num = [...doc.getElementsByTagNameNS(NS.text, 'list-style')].find(x => x.getAttributeNS(NS.style, 'name') === ls);
+            const esNum = num && num.getElementsByTagNameNS(NS.text, 'list-level-style-number').length && !num.getElementsByTagNameNS(NS.text, 'list-level-style-bullet').length;
+            const tag = esNum ? 'ol' : 'ul';
+            h += `<${tag}>` + [...c.children].filter(x => x.localName === 'list-item' || x.localName === 'list-header').map(li => '<li>' + conv(li).replace(/^<p>(.*)<\/p>$/s, '$1') + '</li>').join('') + `</${tag}>`; return;
+          }
+          case 'line-break': h += '<br>'; return;
+          case 'tab': h += '&emsp;'; return;
+          case 's': h += '&nbsp;'.repeat(parseInt(c.getAttributeNS(NS.text, 'c')) || 1); return;
+          case 'soft-page-break': case 'bookmark': case 'bookmark-start': case 'bookmark-end': case 'sequence-decls': case 'tracked-changes': return;
+          default: h += conv(c); return;
+        }
       }
+      if (c.namespaceURI === NS.table){
+        if (c.localName === 'table'){
+          let t = '<table><tbody>';
+          for (const fila of c.getElementsByTagNameNS(NS.table, 'table-row')){
+            t += '<tr>';
+            for (const cel of fila.children){
+              if (cel.localName === 'covered-table-cell') continue;
+              if (cel.localName !== 'table-cell') continue;
+              const span = parseInt(cel.getAttributeNS(NS.table, 'number-columns-spanned')) || 1;
+              t += `<td${span > 1 ? ` colspan="${span}"` : ''}>${conv(cel).replace(/^<p>(.*)<\/p>$/s, '$1') || '<br>'}</td>`;
+            }
+            t += '</tr>';
+          }
+          h += t + '</tbody></table>'; return;
+        }
+        return;
+      }
+      if (c.namespaceURI === NS.draw){
+        if (c.localName === 'frame'){
+          const im = c.getElementsByTagNameNS(NS.draw, 'image')[0];
+          const href = im && im.getAttributeNS(NS.xlink, 'href');
+          if (href && imgs[href]){
+            const w = c.getAttributeNS(NS.svg, 'width'); let px = '';
+            if (/cm$/.test(w)) px = Math.round(parseFloat(w) * 10 * MM); else if (/in$/.test(w)) px = Math.round(parseFloat(w) * 96); else if (/mm$/.test(w)) px = Math.round(parseFloat(w) * MM);
+            h += `<img src="${imgs[href]}" data-ajuste="linea"${px ? ` style="width:${px}px"` : ''}>`;
+          } else h += conv(c);
+          return;
+        }
+        h += conv(c); return;
+      }
+      h += conv(c);
     });
     return h;
   }
-  return conv(cuerpo);
+  return conv(doc.getElementsByTagNameNS(NS.office, 'text')[0]);
 }
 
 /* PDF: extrae el texto agrupado en líneas, párrafos y títulos; cada página del PDF = una página */
@@ -1268,6 +1361,9 @@ async function leerDoc(file){
   const inicio = new TextDecoder('latin1').decode(buf.slice(0, 600)).toLowerCase();
   if (buf[0] === 0x50 && buf[1] === 0x4B) return leerDocx(file);                                 // .docx renombrado
   if (inicio.startsWith('{\\rtf')) return rtfAHtml(new TextDecoder('windows-1252').decode(buf));   // RTF
+  if (/^mime-version:|multipart\/related/.test(inicio)){                                             // .doc "página web de un solo archivo"
+    const h = mhtAHtml(new TextDecoder('latin1').decode(buf)); if (h !== null) return h;
+  }
   if (/<html|<!doctype html|<body|xmlns:w=/.test(inicio)){                                          // HTML de Word
     let texto = new TextDecoder('utf-8').decode(buf);
     if (texto.includes('�')) texto = new TextDecoder('windows-1252').decode(buf);
@@ -1404,20 +1500,136 @@ function docBinarioAHtml(buf){
   return html;
 }
 
+/* RTF: conserva negrita, cursiva, subrayado, colores, tamaños, fuentes, alineación, títulos, listas, tablas e imágenes */
 function rtfAHtml(rtf){
-  let txt = rtf
-    .replace(/\{\\\*[^{}]*(\{[^{}]*\}[^{}]*)*\}/g, '')
-    .replace(/\{\\(fonttbl|colortbl|stylesheet|info|pict)[\s\S]*?\}\}?/g, '')
-    .replace(/\\page\b ?/g, '\n\u000C\n')
-    .replace(/\\par[d]?\b ?/g, '\n')
-    .replace(/\\line\b ?/g, '\n')
-    .replace(/\\tab\b ?/g, '\t')
-    .replace(/\\'([0-9a-f]{2})/gi, (m, h) => new TextDecoder('windows-1252').decode(new Uint8Array([parseInt(h, 16)])))
-    .replace(/\\u(-?\d+)\??/g, (m, n) => String.fromCharCode(n < 0 ? 65536 + +n : +n))
-    .replace(/\\[a-z]+-?\d* ?/gi, '')
-    .replace(/\\([{}\\])/g, '$1')
-    .replace(/[{}]/g, '');
-  return txt.trim().split('\u000C').map(textoAHtml).join('<div class="salto-pagina" contenteditable="false"></div>');
+  const fuentes = {}, colores = []; let colorConValor = false;
+  const HL = [null, '#000000', '#0000ff', '#00ffff', '#00ff00', '#ff00ff', '#ff0000', '#ffff00', null, '#000080', '#008080', '#008000', '#800080', '#800000', '#808000', '#808080', '#c0c0c0'];
+  const nuevo = () => ({b: 0, i: 0, u: 0, s: 0, va: '', fs: 24, f: null, cf: 0, cb: 0, hl: 0, dest: null, uc: 1});
+  let st = nuevo(), fuenteDef = 0;
+  const pila = [];
+  let par = {align: '', intbl: false, outline: -1, lh: null};
+  let html = '', runs = '', txt = '', clave = '', filas = [], fila = [], celda = '', lista = null;
+  let pict = null, fuenteNum = null, fuenteNombre = '', color = {r: 0, g: 0, b: 0}, saltarChars = 0;
+  const dec = new TextDecoder('windows-1252');
+  const estiloRun = s => {
+    let c = '';
+    if (s.b) c += 'font-weight:bold;'; if (s.i) c += 'font-style:italic;';
+    const d = [s.u ? 'underline' : '', s.s ? 'line-through' : ''].filter(Boolean).join(' '); if (d) c += 'text-decoration:' + d + ';';
+    if (s.va) c += 'vertical-align:' + s.va + ';font-size:smaller;';
+    else if (s.fs && s.fs !== 24) c += 'font-size:' + (s.fs / 2) + 'pt;';
+    if (s.f !== null && s.f !== fuenteDef && fuentes[s.f] && !/^(calibri|times new roman)$/i.test(fuentes[s.f])) c += `font-family:'${fuentes[s.f].replace(/'/g, '')}';`;
+    if (s.cf && colores[s.cf]) c += 'color:' + colores[s.cf] + ';';
+    const bg = (s.hl && HL[s.hl]) || (s.cb && colores[s.cb]); if (bg) c += 'background-color:' + bg + ';';
+    return c;
+  };
+  const cerrarRun = () => { if (txt){ const t = escapar(txt).replace(/\t/g, '&emsp;'); runs += clave ? `<span style="${clave}">${t}</span>` : t; } txt = ''; };
+  const texto = t => { if (st.dest) { if (st.dest === 'fonttbl') fuenteNombre += t; return; } const k = estiloRun(st); if (k !== clave){ cerrarRun(); clave = k; } txt += t; };
+  const cerrarLista = () => { if (lista){ html += `<${lista.tipo}>${lista.items.join('')}</${lista.tipo}>`; lista = null; } };
+  const cerrarTabla = () => { if (filas.length){ cerrarLista(); html += '<table><tbody>' + filas.map(f => '<tr>' + f.map(c => `<td>${c || '<br>'}</td>`).join('') + '</tr>').join('') + '</tbody></table>'; filas = []; } };
+  const finParrafo = () => {
+    cerrarRun();
+    let contenido = runs; runs = '';
+    if (par.intbl){ celda += (celda ? '<br>' : '') + contenido; return; }
+    cerrarTabla();
+    const plano = contenido.replace(/<[^>]+>/g, '');
+    const mL = plano.match(/^\s*(•|·|\u2022|\d+[.)])(&emsp;|\s)+/);
+    if (mL && par.outline < 0){
+      const tipo = /\d/.test(mL[1]) ? 'ol' : 'ul';
+      contenido = contenido.replace(/^((?:<[^>]+>)*)\s*(?:•|·|\u2022|\d+[.)])(?:&emsp;|\s)+/, '$1');
+      if (!lista || lista.tipo !== tipo){ cerrarLista(); lista = {tipo, items: []}; }
+      lista.items.push(`<li>${contenido || '<br>'}</li>`); return;
+    }
+    cerrarLista();
+    const estilo = (par.align ? `text-align:${par.align};` : '') + (par.lh ? `line-height:${par.lh};` : '');
+    const a = estilo ? ` style="${estilo}"` : '';
+    if (par.outline >= 0 && par.outline < 3) html += `<h${par.outline + 1}${a}>${contenido || '<br>'}</h${par.outline + 1}>`;
+    else html += `<p${a}>${contenido || '<br>'}</p>`;
+  };
+  const DESTINOS_SALTAR = /^(stylesheet|info|header[lrf]?|footer[lrf]?|footnote|annotation|xmlnstbl|listtable|listoverridetable|rsidtbl|generator|themedata|colorschememapping|latentstyles|datastore|pgdsctbl|fldinst|object|objdata|nonshppict|shp|shpinst|bkmkstart|bkmkend|xe|tc|txe|mmathPr|pnseclvl|pntext|pntxta|pntxtb|revtbl|filetbl|userprops|docvar|wgrffmtfilter|template|ftnsep|ftnsepc|aftncn|ftncn|aftnsep|aftnsepc|listtext)$/;
+  let i = 0, n = rtf.length, asterisco = false;
+  while (i < n){
+    const ch = rtf[i];
+    if (ch === '{'){ pila.push({...st}); i++; continue; }
+    if (ch === '}'){
+      if (st.dest === 'pict' && pict && pila.length && pila[pila.length - 1].dest !== 'pict'){
+        if (pict.tipo){
+          const hex = pict.hex.replace(/[^0-9a-f]/gi, ''); let bin = '';
+          for (let k = 0; k + 1 < hex.length; k += 2) bin += String.fromCharCode(parseInt(hex.substr(k, 2), 16));
+          const w = pict.wg ? Math.round(pict.wg / 15) : pict.w, h = pict.hg ? Math.round(pict.hg / 15) : pict.h;
+          const s0 = st; st = pila[pila.length - 1]; cerrarRun(); st = s0;
+          runs += `<img src="data:image/${pict.tipo};base64,${btoa(bin)}"${w ? ` style="width:${w}px"` : ''} data-ajuste="linea">`;
+        }
+        pict = null;
+      }
+      if (st.dest === 'fonttbl' && fuenteNum !== null && fuenteNombre.trim()){ fuentes[fuenteNum] = fuenteNombre.replace(/;\s*$/, '').trim(); }
+      st = pila.pop() || nuevo(); i++; continue;
+    }
+    if (ch === '\\'){
+      const sig = rtf[i + 1];
+      if (sig === '\\' || sig === '{' || sig === '}'){ if (saltarChars > 0) saltarChars--; else texto(sig); i += 2; continue; }
+      if (sig === "'"){ const h = rtf.substr(i + 2, 2); i += 4; if (saltarChars > 0){ saltarChars--; continue; } texto(dec.decode(new Uint8Array([parseInt(h, 16)]))); continue; }
+      if (sig === '~'){ texto('\u00a0'); i += 2; continue; }
+      if (sig === '_'){ texto('-'); i += 2; continue; }
+      if (sig === '-'){ i += 2; continue; }
+      if (sig === '*'){ asterisco = true; i += 2; continue; }
+      if (sig === '\n' || sig === '\r'){ if (!st.dest) finParrafo(); i += 2; continue; }
+      const m = /^([a-zA-Z]+)(-?\d+)? ?/.exec(rtf.substr(i + 1, 40));
+      if (!m){ i += 2; continue; }
+      i += 1 + m[0].length;
+      const w = m[1], p = m[2] !== undefined ? parseInt(m[2], 10) : null;
+      if (asterisco){ asterisco = false; if (!['pict'].includes(w)){ st.dest = 'saltar'; continue; } }
+      if (st.dest === 'saltar') continue;
+      if (w === 'bin' && p){ i += p; continue; }
+      if (st.dest === 'colortbl'){ if (w === 'red') color.r = p; else if (w === 'green') color.g = p; else if (w === 'blue') color.b = p; colorConValor = true; continue; }
+      if (st.dest === 'fonttbl'){ if (w === 'f'){ fuenteNum = p; fuenteNombre = ''; } continue; }
+      if (st.dest === 'pict'){
+        if (w === 'pngblip') pict.tipo = 'png'; else if (w === 'jpegblip') pict.tipo = 'jpeg';
+        else if (w === 'picw') pict.w = p; else if (w === 'pich') pict.h = p; else if (w === 'picwgoal') pict.wg = p; else if (w === 'pichgoal') pict.hg = p;
+        continue;
+      }
+      if (DESTINOS_SALTAR.test(w)){ st.dest = 'saltar'; continue; }
+      switch (w){
+        case 'fonttbl': st.dest = 'fonttbl'; fuenteNum = null; fuenteNombre = ''; break;
+        case 'colortbl': st.dest = 'colortbl'; color = {r: 0, g: 0, b: 0}; break;
+        case 'pict': st.dest = 'pict'; pict = {hex: ''}; break;
+        case 'deff': fuenteDef = p; break;
+        case 'par': case 'sect': finParrafo(); break;
+        case 'pard': par = {align: '', intbl: false, outline: -1, lh: null}; break;
+        case 'plain': Object.assign(st, {b: 0, i: 0, u: 0, s: 0, va: '', fs: 24, f: null, cf: 0, cb: 0, hl: 0}); break;
+        case 'qc': par.align = 'center'; break; case 'qr': par.align = 'right'; break; case 'qj': par.align = 'justify'; break; case 'ql': par.align = ''; break;
+        case 'intbl': par.intbl = true; break;
+        case 'outlinelevel': par.outline = p; break;
+        case 'sl': if (p > 0){ const v = Math.round(p / 240 * 100) / 100; par.lh = v === 1.5 ? null : v; } break;
+        case 'line': cerrarRun(); runs += '<br>'; break;
+        case 'tab': texto('\t'); break;
+        case 'page': cerrarRun(); if (runs){ finParrafo(); } cerrarTabla(); cerrarLista(); html += '<div class="salto-pagina" contenteditable="false"></div>'; break;
+        case 'cell': cerrarRun(); celda += (celda && runs ? '<br>' : '') + runs; runs = ''; fila.push(celda); celda = ''; break;
+        case 'row': filas.push(fila); fila = []; break;
+        case 'b': st.b = p !== 0; break; case 'i': st.i = p !== 0; break;
+        case 'ul': st.u = p !== 0; break; case 'ulnone': st.u = 0; break;
+        case 'strike': st.s = p !== 0; break;
+        case 'super': st.va = 'super'; break; case 'sub': st.va = 'sub'; break; case 'nosupersub': st.va = ''; break;
+        case 'fs': st.fs = p || 24; break; case 'f': st.f = p; break;
+        case 'cf': st.cf = p || 0; break; case 'cb': case 'chcbpat': st.cb = p || 0; break; case 'highlight': st.hl = p || 0; break;
+        case 'uc': st.uc = p || 0; break;
+        case 'u': texto(String.fromCharCode(p < 0 ? p + 65536 : p)); saltarChars = st.uc; break;
+        case 'emdash': texto('—'); break; case 'endash': texto('–'); break; case 'bullet': texto('•'); break;
+        case 'lquote': texto('‘'); break; case 'rquote': texto('’'); break; case 'ldblquote': texto('“'); break; case 'rdblquote': texto('”'); break;
+      }
+      continue;
+    }
+    if (ch === '\r' || ch === '\n'){ i++; continue; }
+    if (st.dest === 'saltar'){ i++; continue; }
+    if (st.dest === 'pict'){ pict.hex += ch; i++; continue; }
+    if (st.dest === 'colortbl'){ if (ch === ';'){ colores.push(colorConValor ? `rgb(${color.r},${color.g},${color.b})` : null); color = {r: 0, g: 0, b: 0}; colorConValor = false; } i++; continue; }
+    if (saltarChars > 0){ saltarChars--; i++; continue; }
+    // texto normal hasta el siguiente carácter especial
+    let j = i; while (j < n && !'\\{}\r\n'.includes(rtf[j])) j++;
+    texto(rtf.slice(i, j)); i = j;
+  }
+  if (runs || txt) finParrafo();
+  cerrarTabla(); cerrarLista();
+  return html;
 }
 
 function markdownAHtml(md){
@@ -1567,17 +1779,20 @@ class EscritorDocx {
     if (n.nodeType === 3) return this.run(n.nodeValue.replace(/​/g,''), f);
     if (n.nodeType !== 1) return '';
     const t = n.tagName.toLowerCase();
-    if (t === 'br') return '<w:r><w:br/></w:r>';
+    if (t === 'br') return this.br();
     if (t === 'img') return this.imagen(n);
     if (t === 'script' || t === 'style') return '';
     const f2 = formatoDe(n, f);
     if (t === 'a' && n.getAttribute('href') && !f.enlace && /^(https?:|mailto:)/i.test(n.getAttribute('href'))){
-      const id = this.rel('hyperlink', n.getAttribute('href'), true);
       const fe = {...f2, color: f2.color || '0563C1', u: true, enlace: true};
-      return `<w:hyperlink r:id="${id}">${[...n.childNodes].map(c => this.inline(c, fe)).join('')}</w:hyperlink>`;
+      return this.enlace(n.getAttribute('href'), [...n.childNodes].map(c => this.inline(c, fe)).join(''));
     }
     return [...n.childNodes].map(c => this.inline(c, f2)).join('');
   }
+  salto(){ return '<w:p><w:r><w:br w:type="page"/></w:r></w:p>'; }
+  hr(){ return '<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="999999"/></w:pBdr></w:pPr></w:p>'; }
+  br(){ return '<w:r><w:br/></w:r>'; }
+  enlace(href, contenido){ const id = this.rel('hyperlink', href, true); return `<w:hyperlink r:id="${id}">${contenido}</w:hyperlink>`; }
   imagen(img){
     const src = img.getAttribute('src') || '';
     const m = src.match(/^data:image\/(png|jpe?g|gif|bmp);base64,(.+)$/i);
@@ -1640,7 +1855,7 @@ class EscritorDocx {
   }
   bloque(el, ctx){
     const t = el.tagName.toLowerCase(), st = el.style;
-    if (el.classList.contains('salto-pagina')) return '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
+    if (el.classList.contains('salto-pagina')) return this.salto();
     const c2 = {...ctx, f: formatoDe(el, ctx.f || {})};
     const al = (st.textAlign || el.getAttribute('align') || '').toLowerCase();
     if (al) c2.align = {left:'left', start:'left', center:'center', right:'right', end:'right', justify:'both'}[al] || c2.align;
@@ -1654,10 +1869,11 @@ class EscritorDocx {
     const ml = parseFloat(st.marginLeft) || parseFloat(st.paddingLeft) || 0;
     if (ml && /px/.test(st.marginLeft || st.paddingLeft)) c2.ind = (c2.ind || 0) + ml * 15;
     let out = '';
-    if (st.pageBreakBefore === 'always' || st.breakBefore === 'page') out += '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
+    if (st.pageBreakBefore === 'always' || st.breakBefore === 'page') out += this.salto();
     if (/^h[1-6]$/.test(t)) { c2.estilo = 'Heading' + Math.min(+t[1], 3); out += this.contenedor(el, c2); }
     else if (t === 'blockquote'){ if (!ml) c2.ind = (c2.ind || 0) + 720; out += this.contenedor(el, c2); }
     else if (t === 'pre'){ c2.f = {...c2.f, font: 'Courier New', sz: c2.f.sz || 21, pre: true}; out += this.contenedor(el, c2); }
+    else if ((t === 'ul' || t === 'ol') && this.lista) out += this.lista(el, c2, ctx);
     else if (t === 'ul' || t === 'ol'){
       const nivel = ctx.nivel === undefined ? 0 : ctx.nivel + 1;
       const id = t === 'ol' ? this.nuevaNumeracion(el.start || 1) : 1;
@@ -1668,9 +1884,9 @@ class EscritorDocx {
       }
     }
     else if (t === 'table') out += this.tabla(el, c2);
-    else if (t === 'hr') out += '<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="999999"/></w:pBdr></w:pPr></w:p>';
+    else if (t === 'hr') out += this.hr();
     else { if (t !== 'p' && t !== 'li') delete c2.estilo; out += this.contenedor(el, c2); }
-    if (st.pageBreakAfter === 'always' || st.breakAfter === 'page') out += '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
+    if (st.pageBreakAfter === 'always' || st.breakAfter === 'page') out += this.salto();
     return out;
   }
   nuevaNumeracion(inicio){ const id = this.nums.length + 2; this.nums.push({id, inicio}); return id; }
@@ -1752,10 +1968,282 @@ async function exportarDocx(){
     zip.file('word/_rels/document.xml.rels', relsDoc);
     w.media.forEach(m => zip.file('word/media/' + m.nombre, m.datos, {base64: true}));
     const blob = await zip.generateAsync({type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', compression: 'DEFLATE'});
-    descargar(blob, nombreBase() + '.docx');
+    return await descargar(blob, nombreBase() + '.docx');
   } catch(e){
-    console.error(e); alert('No se pudo generar el archivo Word.\n\n' + e.message);
+    console.error(e); alert('No se pudo generar el archivo Word.\n\n' + e.message); return false;
   } finally { cargando(false); }
+}
+
+
+/* ================= otros formatos: RTF, ODT y Word 97-2003 (.doc) ================= */
+const b64aBytes = b64 => { const bin = atob(b64); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
+function medidasImagen(img){
+  let w = parseFloat(img.style.width) || +img.getAttribute('width') || img.naturalWidth || 300;
+  let h = parseFloat(img.style.height) || +img.getAttribute('height') || (img.naturalWidth ? img.naturalHeight * w / img.naturalWidth : 200);
+  const max = 166 * MM; if (w > max){ h = h * max / w; w = max; }
+  return {w: Math.round(w), h: Math.round(h)};
+}
+async function prepararRaiz(conNumeros){
+  const raiz = document.createElement('div'); raiz.innerHTML = limpioParaExportar(conNumeros);
+  await Promise.all([...raiz.querySelectorAll('img')].map(i => i.decode ? i.decode().catch(() => {}) : null));
+  return raiz;
+}
+
+/* --- RTF (también lo usa Word, WordPad y LibreOffice) --- */
+class EscritorRtf extends EscritorDocx {
+  constructor(){ super(); this.fuentes = ['Calibri']; this.colores = []; this.contadores = {}; this.numT = [0, 0, 0]; }
+  fuente(n){ n = n || 'Calibri'; let i = this.fuentes.indexOf(n); if (i < 0){ this.fuentes.push(n); i = this.fuentes.length - 1; } return i; }
+  color(hex){ let i = this.colores.indexOf(hex); if (i < 0){ this.colores.push(hex); i = this.colores.length - 1; } return i + 1; }
+  esc(t){ return t.replace(/[\\{}]/g, m => '\\' + m).replace(/\t/g, '\\tab ').replace(/[^\x20-\x7e]/g, ch => { const c = ch.charCodeAt(0); return c < 32 ? '' : '\\u' + (c > 32767 ? c - 65536 : c) + '?'; }); }
+  run(texto, f){
+    texto = f.pre ? texto : texto.replace(/[\r\n\t]+/g, ' ');
+    if (!texto) return '';
+    let p = '';
+    if (f.b) p += '\\b'; if (f.i) p += '\\i'; if (f.u) p += '\\ul'; if (f.s) p += '\\strike';
+    if (f.va === 'superscript') p += '\\super'; if (f.va === 'subscript') p += '\\sub';
+    if (f.font) p += '\\f' + this.fuente(f.font);
+    if (f.sz) p += '\\fs' + f.sz;
+    if (f.color) p += '\\cf' + this.color(f.color);
+    if (f.bg){ const c = this.color(f.bg); p += '\\chshdng0\\chcbpat' + c + '\\cb' + c; }
+    const partes = f.pre ? texto.split('\n') : [texto];
+    return partes.map((t, i) => (i ? '\\line ' : '') + (t ? (p ? '{' + p + ' ' + this.esc(t) + '}' : this.esc(t)) : '')).join('');
+  }
+  br(){ return '\\line '; }
+  salto(){ return '\\page\n'; }
+  hr(){ return '\\pard\\plain\\brdrb\\brdrs\\brdrw10\\brsp20\\par\n'; }
+  enlace(href, contenido){ return `{\\field{\\*\\fldinst{HYPERLINK "${href.replace(/["\\{}]/g, '')}"}}{\\fldrslt{${contenido}}}}`; }
+  imagen(img){
+    const m = (img.getAttribute('src') || '').match(/^data:image\/(png|jpe?g);base64,(.+)$/i);
+    if (!m) return img.alt ? this.run('[' + img.alt + ']', {}) : '';
+    const {w, h} = medidasImagen(img);
+    const bytes = b64aBytes(m[2]); let hex = '';
+    for (let i = 0; i < bytes.length; i++){ hex += (bytes[i] < 16 ? '0' : '') + bytes[i].toString(16); if (i % 64 === 63) hex += '\n'; }
+    return `{\\pict${/png/i.test(m[1]) ? '\\pngblip' : '\\jpegblip'}\\picw${w}\\pich${h}\\picwgoal${w * 15}\\pichgoal${h * 15}\n${hex}}`;
+  }
+  parrafo(runs, ctx){
+    let p = '\\pard\\plain' + (ctx.enTabla ? '\\intbl' : '') + '\\sa120\\sl' + Math.round(240 * (ctx.lh || 1.5)) + '\\slmult1';
+    let pre = '';
+    if (ctx.estilo){
+      const n = +ctx.estilo.slice(7), s = estilos['h' + n];
+      p = '\\pard\\plain' + (ctx.enTabla ? '\\intbl' : '') + `\\outlinelevel${n - 1}\\keepn\\sb240\\sa120`;
+      let g = (s.bold ? '\\b' : '') + (s.italic ? '\\i' : '') + (s.underline ? '\\ul' : '') + '\\fs' + Math.round(s.size * 2);
+      if (s.font) g += '\\f' + this.fuente(s.font);
+      if (s.color){ const c = aHex(s.color); if (c) g += '\\cf' + this.color(c); }
+      if (s.align) ctx = {...ctx, align: {center:'center', right:'right', justify:'both'}[s.align]};
+      if (numerarTitulos){ this.numT[n - 1]++; for (let i = n; i < 3; i++) this.numT[i] = 0; pre = this.esc((n === 1 ? this.numT[0] + '.' : this.numT.slice(0, n).join('.')) + '  '); }
+      runs = `{${g} ${pre}${runs}}`;
+      pre = '';
+    }
+    if (ctx.num){
+      const k = ctx.num.id + ':' + ctx.num.nivel; this.contadores[k] = (this.contadores[k] || 0) + 1;
+      p += `\\fi-360\\li${720 * (ctx.num.nivel + 1)}`;
+      pre = ctx.num.id === 1 ? '\\u8226?\\tab ' : this.contadores[k] + '.\\tab ';
+    } else if (ctx.ind) p += '\\li' + Math.round(ctx.ind);
+    if (ctx.despues !== undefined) p += '\\sa' + ctx.despues;
+    if (ctx.f && ctx.f.pre) p += '\\f' + this.fuente('Courier New');
+    p += {center: '\\qc', right: '\\qr', both: '\\qj'}[ctx.align] || '';
+    return p + ' ' + pre + runs + '\\par\n';
+  }
+  tabla(t, ctx){
+    const filas = [...t.querySelectorAll(':scope > tr, :scope > tbody > tr, :scope > thead > tr, :scope > tfoot > tr')];
+    if (!filas.length) return '';
+    const ncols = Math.max(1, ...filas.map(r => [...r.children].reduce((a, c) => a + (c.colSpan || 1), 0)));
+    const ancho = Math.floor(ANCHO_TWIPS / ncols);
+    const borde = 'brdrs\\brdrw10\\brdrcf0';
+    let out = '';
+    for (const r of filas){
+      let def = '\\trowd\\trgaph108\\trleft0', x = 0, celdas = '';
+      for (const c of r.children){
+        x += ancho * (c.colSpan || 1);
+        const bg = aHex(c.style.backgroundColor || c.getAttribute('bgcolor') || '');
+        def += `\\clbrdrt\\${borde}\\clbrdrl\\${borde}\\clbrdrb\\${borde}\\clbrdrr\\${borde}${bg ? '\\clcbpat' + this.color(bg) : ''}\\cellx${x}`;
+        let cont = this.contenedor(c, {f: c.tagName === 'TH' ? {b: true} : {}, enTabla: true, align: c.tagName === 'TH' ? 'center' : undefined});
+        if (!cont) cont = '\\pard\\plain\\intbl\\par\n';
+        celdas += cont.replace(/\\par\n$/, '\\cell\n');
+      }
+      out += def + '\n' + celdas + '\\row\n';
+    }
+    return out + '\\pard\\plain\\par\n';
+  }
+}
+async function exportarRtf(nombre){
+  try {
+    const raiz = await prepararRaiz(false);
+    const w = new EscritorRtf();
+    const cuerpo = w.contenedor(raiz, {f: {}});
+    const fuentes = w.fuentes.map((f, i) => `{\\f${i}\\fnil\\fcharset0 ${f};}`).join('');
+    const colores = w.colores.map(h => `\\red${parseInt(h.slice(0, 2), 16)}\\green${parseInt(h.slice(2, 4), 16)}\\blue${parseInt(h.slice(4, 6), 16)};`).join('');
+    const rtf = `{\\rtf1\\ansi\\ansicpg1252\\deff0\\uc1{\\fonttbl${fuentes}}{\\colortbl;${colores}}\n{\\*\\generator MyText;}\\paperw11906\\paperh16838\\margl1247\\margr1247\\margt1417\\margb1417\\viewkind4\\fs24\n${cuerpo}}`;
+    return descargar(rtf, nombre || nombreBase() + '.rtf', 'application/rtf');
+  } catch(e){ console.error(e); alert('No se pudo guardar en RTF.\n\n' + e.message); return false; }
+}
+
+/* --- ODT (LibreOffice / OpenOffice) --- */
+class EscritorOdt extends EscritorDocx {
+  constructor(){ super(); this.estT = new Map(); this.estP = new Map(); this.imgs = []; this.nTabla = 0; }
+  estilo(mapa, pref, familia, props){
+    const k = props; if (!k) return null;
+    if (!mapa.has(k)) mapa.set(k, {nombre: pref + (mapa.size + 1), familia, props});
+    return mapa.get(k).nombre;
+  }
+  propsTexto(f){
+    let x = '';
+    if (f.b) x += ' fo:font-weight="bold"'; if (f.i) x += ' fo:font-style="italic"';
+    if (f.u) x += ' style:text-underline-style="solid" style:text-underline-width="auto" style:text-underline-color="font-color"';
+    if (f.s) x += ' style:text-line-through-style="solid"';
+    if (f.va) x += ` style:text-position="${f.va === 'superscript' ? 'super' : 'sub'} 58%"`;
+    if (f.color) x += ` fo:color="#${f.color}"`;
+    if (f.bg) x += ` fo:background-color="#${f.bg}"`;
+    if (f.sz) x += ` fo:font-size="${f.sz / 2}pt"`;
+    if (f.font) x += ` fo:font-family="${xe(f.font)}"`;
+    return x ? `<style:text-properties${x}/>` : '';
+  }
+  run(texto, f){
+    texto = f.pre ? texto : texto.replace(/[\r\n\t]+/g, ' ');
+    if (!texto) return '';
+    const esc = t => xe(t).replace(/ {2,}/g, m => ' <text:s text:c="' + (m.length - 1) + '"/>');
+    const contenido = f.pre ? texto.split('\n').map(esc).join('<text:line-break/>') : esc(texto);
+    const st = this.estilo(this.estT, 'T', 'text', this.propsTexto(f));
+    return st ? `<text:span text:style-name="${st}">${contenido}</text:span>` : contenido;
+  }
+  br(){ return '<text:line-break/>'; }
+  salto(){ return `<text:p text:style-name="${this.estilo(this.estP, 'P', 'paragraph', '<style:paragraph-properties fo:break-after="page"/>')}"/>`; }
+  hr(){ return `<text:p text:style-name="${this.estilo(this.estP, 'P', 'paragraph', '<style:paragraph-properties fo:border-bottom="0.5pt solid #999999" fo:padding-bottom="0.05cm"/>')}"/>`; }
+  enlace(href, contenido){ return `<text:a xlink:type="simple" xlink:href="${xe(href)}">${contenido}</text:a>`; }
+  imagen(img){
+    const m = (img.getAttribute('src') || '').match(/^data:image\/(png|jpe?g|gif|bmp);base64,(.+)$/i);
+    if (!m) return img.alt ? this.run('[' + img.alt + ']', {}) : '';
+    const ext = /png/i.test(m[1]) ? 'png' : /gif/i.test(m[1]) ? 'gif' : /bmp/i.test(m[1]) ? 'bmp' : 'jpg';
+    const n = this.imgs.length + 1, nombre = `Pictures/imagen${n}.${ext}`;
+    this.imgs.push({nombre, datos: m[2], mime: 'image/' + (ext === 'jpg' ? 'jpeg' : ext)});
+    const {w, h} = medidasImagen(img);
+    return `<draw:frame draw:name="Imagen${n}" text:anchor-type="as-char" svg:width="${(w / MM / 10).toFixed(3)}cm" svg:height="${(h / MM / 10).toFixed(3)}cm"><draw:image xlink:href="${nombre}" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"/></draw:frame>`;
+  }
+  parrafo(runs, ctx){
+    let pp = '';
+    const jc = {center: 'center', right: 'end', both: 'justify'}[ctx.align];
+    if (jc) pp += ` fo:text-align="${jc}"`;
+    if (ctx.lh) pp += ` fo:line-height="${Math.round(ctx.lh * 100)}%"`;
+    if (ctx.despues !== undefined) pp += ` fo:margin-bottom="${(ctx.despues / 567).toFixed(3)}cm"`;
+    if (ctx.ind && !ctx.num) pp += ` fo:margin-left="${(ctx.ind / 567).toFixed(3)}cm"`;
+    if (ctx.f && ctx.f.pre) pp += ' fo:background-color="#F2F2F2"';
+    if (ctx.estilo){
+      const n = +ctx.estilo.slice(7);
+      const props = pp ? `<style:paragraph-properties${pp}/>` : '';
+      const st = this.estilo(this.estP, 'H' + n + '_', 'paragraph', props + '|H' + n);
+      return `<text:h text:style-name="${st}" text:outline-level="${n}">${runs}</text:h>`;
+    }
+    const st = pp ? this.estilo(this.estP, 'P', 'paragraph', `<style:paragraph-properties${pp}/>`) : null;
+    return `<text:p text:style-name="${st || 'Standard'}">${runs}</text:p>`;
+  }
+  lista(el, c2, ctx){
+    const nivel = ctx.nivel === undefined ? 0 : ctx.nivel + 1;
+    const c3 = {...c2, nivel, num: null};
+    let x = nivel === 0 ? `<text:list text:style-name="${el.tagName === 'OL' ? 'LNum' : 'LVin'}">` : '<text:list>';
+    for (const li of el.children){
+      if (li.tagName !== 'LI') continue;
+      let cont = this.contenedor(li, {...c3, f: formatoDe(li, c3.f)});
+      if (!cont) cont = '<text:p text:style-name="Standard"/>';
+      x += `<text:list-item>${cont}</text:list-item>`;
+    }
+    return x + '</text:list>';
+  }
+  tabla(t, ctx){
+    const filas = [...t.querySelectorAll(':scope > tr, :scope > tbody > tr, :scope > thead > tr, :scope > tfoot > tr')];
+    if (!filas.length) return '';
+    const ncols = Math.max(1, ...filas.map(r => [...r.children].reduce((a, c) => a + (c.colSpan || 1), 0)));
+    let x = `<table:table table:name="Tabla${++this.nTabla}" table:style-name="Tab"><table:table-column table:number-columns-repeated="${ncols}"/>`;
+    for (const r of filas){
+      x += '<table:table-row>'; let usadas = 0;
+      for (const c of r.children){
+        const span = Math.min(c.colSpan || 1, ncols - usadas); if (span <= 0) break; usadas += span;
+        let cont = this.contenedor(c, {f: c.tagName === 'TH' ? {b: true} : {}, align: c.tagName === 'TH' ? 'center' : undefined});
+        if (!cont) cont = '<text:p text:style-name="Standard"/>';
+        x += `<table:table-cell table:style-name="Celda" office:value-type="string"${span > 1 ? ` table:number-columns-spanned="${span}"` : ''}>${cont}</table:table-cell>`;
+        for (let i = 1; i < span; i++) x += '<table:covered-table-cell/>';
+      }
+      for (; usadas < ncols; usadas++) x += '<table:table-cell table:style-name="Celda" office:value-type="string"><text:p text:style-name="Standard"/></table:table-cell>';
+      x += '</table:table-row>';
+    }
+    return x + '</table:table>';
+  }
+}
+async function exportarOdt(){
+  try {
+    cargando(true, 'Generando ODT…');
+    await cargarScript(CDN.jszip);
+    const raiz = await prepararRaiz(true);
+    const w = new EscritorOdt();
+    const cuerpo = w.contenedor(raiz, {f: {}}) || '<text:p text:style-name="Standard"/>';
+    const NS = 'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" xmlns:loext="urn:org:documentfoundation:names:experimental:office:xmlns:loext:1.0" office:version="1.3"';
+    const titulo = n => { const s = estilos['h' + n]; const col = aHex(s.color || ''); return `<style:text-properties fo:font-size="${s.size}pt" fo:font-weight="${s.bold ? 'bold' : 'normal'}"${s.italic ? ' fo:font-style="italic"' : ''}${s.underline ? ' style:text-underline-style="solid" style:text-underline-width="auto" style:text-underline-color="font-color"' : ''}${col ? ` fo:color="#${col}"` : ''}${s.font ? ` fo:font-family="${xe(s.font)}"` : ''}/>`; };
+    let auto = '';
+    w.estT.forEach(e => { auto += `<style:style style:name="${e.nombre}" style:family="text">${e.props}</style:style>`; });
+    w.estP.forEach(e => {
+      const [props, h] = e.props.split('|');
+      if (h){ const n = +h.slice(1); const s = estilos['h' + n]; const jc = {center: 'center', right: 'end', justify: 'justify'}[s.align];
+        let pp = props || ''; if (jc && !/fo:text-align/.test(pp)) pp = pp ? pp.replace('<style:paragraph-properties', `<style:paragraph-properties fo:text-align="${jc}"`) : `<style:paragraph-properties fo:text-align="${jc}"/>`;
+        auto += `<style:style style:name="${e.nombre}" style:family="paragraph" style:parent-style-name="Heading_20_${n}" style:default-outline-level="${n}">${pp}</style:style>`; }
+      else auto += `<style:style style:name="${e.nombre}" style:family="paragraph" style:parent-style-name="Standard">${props}</style:style>`;
+    });
+    const nivelesLista = (fmt) => Array.from({length: 10}, (_, i) => fmt === 'bullet'
+      ? `<text:list-level-style-bullet text:level="${i + 1}" text:bullet-char="${['•', '◦', '▪'][i % 3]}"><style:list-level-properties text:list-level-position-and-space-mode="label-alignment"><style:list-level-label-alignment text:label-followed-by="listtab" fo:text-indent="-0.635cm" fo:margin-left="${(1.27 * (i + 1)).toFixed(2)}cm"/></style:list-level-properties></text:list-level-style-bullet>`
+      : `<text:list-level-style-number text:level="${i + 1}" style:num-suffix="." style:num-format="${['1', 'a', 'i'][i % 3]}"><style:list-level-properties text:list-level-position-and-space-mode="label-alignment"><style:list-level-label-alignment text:label-followed-by="listtab" fo:text-indent="-0.635cm" fo:margin-left="${(1.27 * (i + 1)).toFixed(2)}cm"/></style:list-level-properties></text:list-level-style-number>`).join('');
+    auto += `<text:list-style style:name="LVin">${nivelesLista('bullet')}</text:list-style><text:list-style style:name="LNum">${nivelesLista('number')}</text:list-style>`;
+    auto += '<style:style style:name="Tab" style:family="table"><style:table-properties style:width="16.6cm" table:align="margins"/></style:style>';
+    auto += '<style:style style:name="Celda" style:family="table-cell"><style:table-cell-properties fo:padding="0.1cm" fo:border="0.5pt solid #999999"/></style:style>';
+    const contenido = `<?xml version="1.0" encoding="UTF-8"?><office:document-content ${NS}><office:automatic-styles>${auto}</office:automatic-styles><office:body><office:text>${cuerpo}</office:text></office:body></office:document-content>`;
+    const estilosXmlOdt = `<?xml version="1.0" encoding="UTF-8"?><office:document-styles ${NS}><office:styles>
+<style:default-style style:family="paragraph"><style:paragraph-properties fo:margin-bottom="0.212cm" fo:line-height="150%"/><style:text-properties fo:font-family="Calibri" style:font-family-generic="swiss" fo:font-size="12pt" fo:language="es" fo:country="ES"/></style:default-style>
+<style:style style:name="Standard" style:family="paragraph" style:class="text"/>
+<style:style style:name="Heading" style:family="paragraph" style:parent-style-name="Standard" style:class="text"><style:paragraph-properties fo:margin-top="0.423cm" fo:margin-bottom="0.212cm" fo:line-height="115%" fo:keep-with-next="always"/></style:style>
+${[1, 2, 3].map(n => `<style:style style:name="Heading_20_${n}" style:display-name="Heading ${n}" style:family="paragraph" style:parent-style-name="Heading" style:default-outline-level="${n}" style:class="text">${titulo(n)}</style:style>`).join('\n')}
+</office:styles><office:automatic-styles><style:page-layout style:name="pm1"><style:page-layout-properties fo:page-width="21cm" fo:page-height="29.7cm" fo:margin-top="2.5cm" fo:margin-bottom="2.5cm" fo:margin-left="2.2cm" fo:margin-right="2.2cm"/></style:page-layout></office:automatic-styles>
+<office:master-styles><style:master-page style:name="Standard" style:page-layout-name="pm1"/></office:master-styles></office:document-styles>`;
+    const manifest = `<?xml version="1.0" encoding="UTF-8"?><manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0" manifest:version="1.3"><manifest:file-entry manifest:full-path="/" manifest:version="1.3" manifest:media-type="application/vnd.oasis.opendocument.text"/><manifest:file-entry manifest:full-path="content.xml" manifest:media-type="text/xml"/><manifest:file-entry manifest:full-path="styles.xml" manifest:media-type="text/xml"/>${w.imgs.map(i => `<manifest:file-entry manifest:full-path="${i.nombre}" manifest:media-type="${i.mime}"/>`).join('')}</manifest:manifest>`;
+    const zip = new JSZip();
+    zip.file('mimetype', 'application/vnd.oasis.opendocument.text', {compression: 'STORE'});
+    zip.file('content.xml', contenido);
+    zip.file('styles.xml', estilosXmlOdt);
+    zip.file('META-INF/manifest.xml', manifest);
+    w.imgs.forEach(i => zip.file(i.nombre, i.datos, {base64: true}));
+    const blob = await zip.generateAsync({type: 'blob', mimeType: 'application/vnd.oasis.opendocument.text', compression: 'DEFLATE'});
+    cargando(false);
+    return descargar(blob, nombreBase() + '.odt');
+  } catch(e){ cargando(false); console.error(e); alert('No se pudo guardar en ODT.\n\n' + e.message); return false; }
+}
+
+/* --- Word 97-2003 (.doc): se guarda con formato RTF por dentro, que Word, WordPad y LibreOffice abren como un documento normal --- */
+function exportarDoc(){ return exportarRtf(nombreBase() + '.doc'); }
+// Lee un .doc guardado como "página web de un solo archivo" (MHT)
+function mhtAHtml(texto){
+  const lim = (texto.match(/boundary="?([^";\r\n]+)"?/i) || [])[1];
+  if (!lim) return null;
+  const partes = texto.split('--' + lim).slice(1);
+  let html = null; const recursos = {};
+  for (const parte of partes){
+    const corte = parte.search(/\r?\n\r?\n/); if (corte < 0) continue;
+    const cab = parte.slice(0, corte), cuerpo = parte.slice(corte).trim();
+    const tipo = ((cab.match(/Content-Type:\s*([^;\r\n]+)/i) || [])[1] || '').toLowerCase();
+    const cod = ((cab.match(/Content-Transfer-Encoding:\s*([^\r\n]+)/i) || [])[1] || '').trim().toLowerCase();
+    const loc = ((cab.match(/Content-Location:\s*([^\r\n]+)/i) || [])[1] || '').trim();
+    const cs = ((cab.match(/charset="?([^";\r\n]+)"?/i) || [])[1] || 'utf-8').toLowerCase();
+    let datos;
+    if (cod === 'base64') datos = b64aBytes(cuerpo.replace(/\s+/g, ''));
+    else if (cod === 'quoted-printable'){ const t = cuerpo.replace(/=\r?\n/g, ''); const u = []; for (let i = 0; i < t.length; i++){ if (t[i] === '=' && /^[0-9A-F]{2}$/i.test(t.substr(i + 1, 2))){ u.push(parseInt(t.substr(i + 1, 2), 16)); i += 2; } else u.push(t.charCodeAt(i) & 255); } datos = new Uint8Array(u); }
+    else datos = new TextEncoder().encode(cuerpo);
+    if (tipo === 'text/html' && html === null){ try { html = new TextDecoder(cs).decode(datos); } catch(e){ html = new TextDecoder('utf-8').decode(datos); } }
+    else if (tipo.startsWith('image/') && loc){
+      let bin = ''; for (let i = 0; i < datos.length; i += 0x8000) bin += String.fromCharCode.apply(null, datos.subarray(i, i + 0x8000));
+      recursos[loc.split('/').pop().toLowerCase()] = `data:${tipo};base64,${btoa(bin)}`;
+    }
+  }
+  if (html === null) return null;
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  doc.querySelectorAll('img').forEach(i => { const k = (i.getAttribute('src') || '').split('/').pop().toLowerCase(); if (recursos[k]) i.setAttribute('src', recursos[k]); });
+  doc.querySelectorAll('br[style*="page-break"]').forEach(b => { const d = doc.createElement('div'); d.className = 'salto-pagina'; b.replaceWith(d); });
+  const sec = doc.querySelector('.WordSection1'); if (sec) sec.replaceWith(...sec.childNodes);
+  return extraerCuerpo(doc.documentElement.outerHTML);
 }
 
 /* ================= imágenes, arrastrar, pegar ================= */
@@ -2533,7 +3021,8 @@ if (window.mytext) (function(){
     Object.assign(CLAVE, propias);
   }
   Object.assign(CDN, M.info.vendor);                 // librerías incluidas en el programa (sin internet)
-  const ESCRIBIBLES = {docx:'guardar-docx', html:'guardar-html', htm:'guardar-html', txt:'guardar-txt', md:'guardar-md', markdown:'guardar-md'};
+  // Formato en el que se guarda cada tipo de archivo (siempre el mismo con el que se abrió)
+  const ESCRIBIBLES = {docx:'guardar-docx', doc:'guardar-doc', dot:'guardar-doc', odt:'guardar-odt', rtf:'guardar-rtf', html:'guardar-html', htm:'guardar-html', txt:'guardar-txt', log:'guardar-txt', csv:'guardar-txt', md:'guardar-md', markdown:'guardar-md'};
   let ruta = null, destinoDirecto = null, esperando = null, silencio = 0;
   window.__mytextModificado = false;
 
@@ -2587,7 +3076,7 @@ if (window.mytext) (function(){
     const ok = !!r;
     if (ok){
       const ext = extDe(r);
-      if (ESCRIBIBLES[ext] || (ext === 'pdf' && visor.activo)) fijarRuta(r);   // a partir de ahora "Guardar" escribe en ese archivo
+      if (ESCRIBIBLES[ext] || (ext === 'pdf' && visor.activo)){ fijarRuta(r); avisadoFormato[r] = true; }   // a partir de ahora "Guardar" escribe en ese archivo
       ponerModificado(false);
       aviso('Guardado: ' + nombreDe(r));
     }
@@ -2603,20 +3092,50 @@ if (window.mytext) (function(){
     });
   }
   const tieneFormato = () => !!editor.querySelector('b,strong,i,em,u,s,span[style],font,img,table,h1,h2,h3,ul,ol,a,blockquote');
+  // Guardar: escribe en el mismo archivo y con el mismo formato. Solo un documento nuevo pregunta dónde guardarlo.
   async function guardar(){
     const ext = ruta ? extDe(ruta) : null;
     if (visor.activo){
       if (!visor.cambios){ aviso('No hay cambios que guardar en el PDF'); return true; }
       return guardarConFormato('guardar-pdf-editado', ext === 'pdf' ? ruta : null);
     }
+    if (ruta && ext === 'pdf'){     // un PDF convertido a documento: se vuelve a guardar como PDF
+      if (!M.elegirRuta) return guardarComo();
+      if (!avisadoFormato[ruta]){
+        if (!confirm(`Se sobrescribirá "${nombreDe(ruta)}" con el documento tal como se ve en MyText; el diseño original del PDF se perderá.\n\n¿Continuar? (Cancelar = elegir otro nombre o formato)`)) return guardarComo();
+        avisadoFormato[ruta] = true;
+      }
+      const r = await M.pdf(nombreDe(ruta), ruta);
+      if (r){ ponerModificado(false); aviso('Guardado: ' + nombreDe(r)); }
+      return !!r;
+    }
     if (ruta && ESCRIBIBLES[ext]){
-      if (ext === 'txt' && tieneFormato() && confirm('Un archivo .txt no guarda negritas, colores, títulos ni imágenes.\n\n¿Guardar como documento de Word (.docx) para no perder el formato?\n\n(Cancelar = guardar igualmente como .txt)'))
-        return guardarConFormato('guardar-docx');
+      if ((ext === 'txt' || ext === 'md') && tieneFormato() && !avisadoFormato[ruta]){
+        avisadoFormato[ruta] = true;
+        if (!confirm(`El formato .${ext} no guarda ${ext === 'txt' ? 'negritas, colores, títulos, tablas ni imágenes' : 'colores, tamaños de letra ni imágenes'}.\n\n¿Guardar igualmente en "${nombreDe(ruta)}"?\n\n(Cancelar = elegir otro formato con "Guardar como")`)) return guardarComo();
+      }
       return guardarConFormato(ESCRIBIBLES[ext], ruta);
     }
-    return guardarConFormato('guardar-docx');   // documento nuevo, o venía de PDF/RTF/ODT
+    return guardarComo();   // documento nuevo: elegir nombre, carpeta y formato
   }
-  function guardarComo(){ return guardarConFormato(visor.activo ? 'guardar-pdf-editado' : 'guardar-docx'); }
+  const avisadoFormato = {};
+  // Guardar como: elegir nombre, carpeta y formato
+  const ACCION_POR_EXT = {...ESCRIBIBLES, pdf: 'pdf'};
+  async function guardarComo(){
+    if (!M.elegirRuta) return guardarConFormato(visor.activo ? 'guardar-pdf-editado' : 'guardar-docx');   // programa antiguo
+    const extActual = visor.activo ? 'pdf' : (ruta && ACCION_POR_EXT[extDe(ruta)] ? extDe(ruta) : 'docx');
+    const r = await M.elegirRuta(nombreBase() + '.' + extActual, extActual, visor.activo);
+    if (!r) return false;
+    const ext = extDe(r);
+    if (ext === 'pdf'){
+      if (visor.activo) return guardarConFormato('guardar-pdf-editado', r);
+      const ok = await M.pdf(nombreDe(r), r);
+      if (ok) aviso('PDF guardado: ' + nombreDe(ok) + ' (el documento sigue siendo "' + (ruta ? nombreDe(ruta) : nombreDoc.value) + '")', 4500);
+      return !!ok;
+    }
+    if (visor.activo){ aviso('Un PDF solo se puede guardar como PDF. Para otros formatos usa «Convertir a documento».', 5000); return false; }
+    return guardarConFormato(ACCION_POR_EXT[ext] || 'guardar-docx', r);
+  }
   window.__mytextMarcarCambio = () => { editadoSesion = true; ponerModificado(true); };
   window.__mytextReiniciar = () => { ruta = null; ponerModificado(false); };
   window.__mytextGuardar = guardar;

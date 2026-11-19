@@ -1,5 +1,5 @@
 {
-  "version": "1.0.5",
+  "version": "1.0.6",
   "minApp": "1.0.0",
-  "notas": "Cada documento en su propia ventana (con el programa 1.0.3)"
+  "notas": "Guardar en el mismo archivo y formato (.doc, .odt, .rtf, .pdf...); Guardar como con elección de formato"
 }
