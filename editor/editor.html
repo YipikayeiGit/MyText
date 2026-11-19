@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
 <title>MyText</title>
-<meta name="mytext-version" content="1.0.1">
+<meta name="mytext-version" content="1.0.2">
 <style>
   :root{
     --bg:#e6e8ec; --bar:#ffffff; --line:#d5d9e0; --ink:#1f2430; --muted:#6b7280;
@@ -2029,7 +2029,17 @@ if (window.mytext) (function(){
 
   // Cualquier cambio en el contenido marca el documento como modificado
   const actualizarOriginal = actualizar;
-  actualizar = function(){ actualizarOriginal(); if (!silencio && !window.__mytextModificado) ponerModificado(true); };
+  let editadoSesion = false;   // cambios hechos de verdad en esta sesión (no lo recuperado al arrancar)
+  actualizar = function(){ actualizarOriginal(); if (!silencio){ editadoSesion = true; if (!window.__mytextModificado) ponerModificado(true); } };
+  // Al cerrar con "No guardar": olvidar el documento para que no vuelva a aparecer al abrir el programa
+  window.__mytextDescartar = () => {
+    try { ['editor-contenido', 'editor-nombre', 'mytext-estado'].forEach(k => localStorage.removeItem(k)); } catch(e){}
+    clearTimeout(tGuardar); window.__mytextModificado = false; editadoSesion = false;
+    silencio++;   // que nada vuelva a guardarlo antes de cerrar
+    return true;
+  };
+  // Si el programa se abrió con un archivo, no recuperar el documento anterior
+  if (M.info.archivoInicial) window.__mytextSinRestaurar = true;
   nombreDoc.addEventListener('input', titulo);
 
   // Las exportaciones escriben en disco en vez de descargar
@@ -2074,11 +2084,17 @@ if (window.mytext) (function(){
   // PDF con el motor de impresión del programa (texto real, no imagen)
   acciones['guardar-pdf'] = async () => { const r = await M.pdf(nombreBase() + '.pdf'); if (r) aviso('PDF guardado: ' + nombreDe(r)); };
 
-  // Abrir y nuevo
-  const descartarCambios = () => !window.__mytextModificado || confirm('Hay cambios sin guardar. ¿Descartarlos?');
-  acciones.abrir = () => { if (descartarCambios()) M.abrir(); };
-  acciones.nuevo = () => {
-    if (!descartarCambios()) return;
+  // Abrir y nuevo. Con el programa 1.0.1 o posterior, la pregunta "¿Guardar cambios?" la hace el programa (Guardar / No guardar / Cancelar)
+  const preguntaPrograma = typeof M.confirmarCambios === 'function';
+  const hayCambios = () => window.__mytextModificado && editadoSesion;
+  const descartarCambios = async () => {
+    if (preguntaPrograma) return M.confirmarCambios();
+    return !hayCambios() || confirm('Hay cambios sin guardar. ¿Descartarlos?');
+  };
+  window.__mytextHayCambios = () => !!window.__mytextModificado;
+  acciones.abrir = async () => { if (preguntaPrograma || await descartarCambios()) M.abrir(); };
+  acciones.nuevo = async () => {
+    if (!(await descartarCambios())) return;
     silencio++; editor.innerHTML = ''; nombreDoc.value = 'Documento sin título'; actualizar(); silencio--;
     ruta = null; ponerModificado(false); editor.focus();
   };
@@ -2087,8 +2103,8 @@ if (window.mytext) (function(){
   abrirArchivo = async function(file, sinConfirmar){
     if (!sinConfirmar){
       const r = M.rutaDe(file);
-      if (r){ if (descartarCambios()) M.abrirRuta(r); return false; }
-      if (!descartarCambios()) return false;
+      if (r){ if (preguntaPrograma || await descartarCambios()) M.abrirRuta(r); return false; }
+      if (!(await descartarCambios())) return false;
       silencio++; const ok = await abrirArchivoOriginal(file, true); silencio--;
       if (ok){ ruta = null; ponerModificado(true); }
       return ok;
@@ -2096,7 +2112,8 @@ if (window.mytext) (function(){
     return abrirArchivoOriginal(file, true);
   };
   M.alAbrirArchivo(async d => {
-    if (window.__mytextModificado && !confirm('Hay cambios sin guardar en el documento actual. ¿Descartarlos y abrir "' + d.nombre + '"?')) return;
+    // d.forzar: el programa ya ha preguntado. Si no, solo se pregunta si hubo cambios reales en esta sesión
+    if (!d.forzar && hayCambios() && !confirm('Hay cambios sin guardar en el documento actual. ¿Descartarlos y abrir "' + d.nombre + '"?')) return;
     const file = new File([d.datos], d.nombre);
     silencio++;
     const ok = await abrirArchivoOriginal(file, true);
@@ -2134,7 +2151,7 @@ if (window.mytext) (function(){
       const b = document.createElement('button');
       b.innerHTML = `<span>${escapar(nombreDe(r))}</span>`; b.title = r;
       b.addEventListener('mousedown', e => e.preventDefault());
-      b.addEventListener('click', () => { if (descartarCambios()) M.abrirRuta(r); });
+      b.addEventListener('click', async () => { if (preguntaPrograma || await descartarCambios()) M.abrirRuta(r); });
       cont.appendChild(b);
     });
   });
@@ -2190,7 +2207,7 @@ if (window.mytext) (function(){
 
   // Al arrancar: recuperar el documento de la última sesión
   try {
-    const est = JSON.parse(localStorage.getItem('mytext-estado') || 'null');
+    const est = window.__mytextSinRestaurar ? null : JSON.parse(localStorage.getItem('mytext-estado') || 'null');
     if (est){ ruta = est.ruta || null; window.__mytextModificado = !!est.modificado; }
   } catch(e){}
   silencio++; setTimeout(() => { silencio--; titulo(); }, 0);   // el arranque no cuenta como cambio
@@ -2204,7 +2221,7 @@ try {
   if (localStorage.getItem('editor-indice') === '0') $('indice').classList.add('oculto');
   if (localStorage.getItem('editor-corrector') === '0'){ editor.spellcheck = false; $('txtCorrector').textContent = 'Corrector ortográfico: desactivado'; }
   const guardado = localStorage.getItem('editor-contenido');
-  if (guardado){ editor.innerHTML = guardado; nombreDoc.value = localStorage.getItem('editor-nombre') || nombreDoc.value; }
+  if (guardado && !window.__mytextSinRestaurar){ editor.innerHTML = guardado; nombreDoc.value = localStorage.getItem('editor-nombre') || nombreDoc.value; }
 } catch(e){}
 aplicarEstilos(false);
 normalizarSaltos();

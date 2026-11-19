@@ -87,7 +87,7 @@ function crearVentana() {
   win.once('ready-to-show', () => { win.maximize(); win.show(); });
 
   win.webContents.on('did-finish-load', () => {
-    if (archivoPendiente) { enviarArchivo(archivoPendiente); archivoPendiente = null; }
+    if (archivoPendiente) { const f = archivoPendiente; archivoPendiente = null; enviarArchivo(f, false); }
   });
 
   // Enlaces externos → navegador
@@ -138,6 +138,10 @@ function crearVentana() {
         try { ok = await win.webContents.executeJavaScript('window.__mytextGuardar ? window.__mytextGuardar() : false'); } catch (err) {}
         if (!ok) return;
       }
+      if (r === 1) {
+        // "No guardar": olvidar el documento para que no reaparezca al volver a abrir MyText
+        try { await win.webContents.executeJavaScript('window.__mytextDescartar ? window.__mytextDescartar() : true'); } catch (err) {}
+      }
     }
     puedeCerrar = true;
     win.close();
@@ -145,10 +149,31 @@ function crearVentana() {
   win.on('closed', () => { win = null; });
 }
 
-function enviarArchivo(ruta) {
+// Antes de cambiar de documento: si hay cambios, preguntar Guardar / No guardar / Cancelar
+async function permitirCambio() {
+  if (!win) return true;
+  let modificado = false;
+  try { modificado = await win.webContents.executeJavaScript('window.__mytextHayCambios ? window.__mytextHayCambios() : window.__mytextModificado === true'); } catch (e) {}
+  if (!modificado) return true;
+  if (win.isMinimized()) win.restore();
+  win.show(); win.focus();
+  const { response } = await dialog.showMessageBox(win, {
+    type: 'question', buttons: ['Guardar', 'No guardar', 'Cancelar'], defaultId: 0, cancelId: 2,
+    title: 'MyText', message: '¿Quieres guardar los cambios del documento actual?'
+  });
+  if (response === 2) return false;
+  if (response === 0) {
+    try { return !!(await win.webContents.executeJavaScript('window.__mytextGuardar ? window.__mytextGuardar() : false')); } catch (e) { return false; }
+  }
+  return true;
+}
+ipcMain.handle('confirmar-cambios', () => permitirCambio());
+
+async function enviarArchivo(ruta, preguntar = true) {
+  if (preguntar && !(await permitirCambio())) return;
   try {
     const datos = fs.readFileSync(ruta);
-    win.webContents.send('abrir-archivo', { ruta, nombre: path.basename(ruta), datos: new Uint8Array(datos) });
+    win.webContents.send('abrir-archivo', { ruta, nombre: path.basename(ruta), datos: new Uint8Array(datos), forzar: true });
     anadirReciente(ruta);
   } catch (e) {
     dialog.showErrorBox('MyText', 'No se pudo abrir el archivo:\n' + ruta + '\n\n' + e.message);
@@ -171,7 +196,7 @@ ipcMain.on('info', e => {
     try { if (fs.existsSync(f)) vendor[k] = pathToFileURL(f).href; } catch (err) {}
   }
   if (!vendor.pdfjs || !vendor.pdfjsWorker) { delete vendor.pdfjs; delete vendor.pdfjsWorker; }
-  e.returnValue = { versionPrograma: app.getVersion(), versionEditor: editorActual().version, vendor };
+  e.returnValue = { versionPrograma: app.getVersion(), versionEditor: editorActual().version, vendor, archivoInicial: !!archivoPendiente };
 });
 
 ipcMain.handle('guardar', async (e, { ruta, datos }) => {

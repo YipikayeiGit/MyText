@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('mytext', {
   abrir: () => ipcRenderer.invoke('abrir-dialogo'),
   abrirRuta: ruta => ipcRenderer.invoke('abrir-ruta', ruta),
   recientes: () => ipcRenderer.invoke('recientes'),
+  confirmarCambios: () => ipcRenderer.invoke('confirmar-cambios'),
   titulo: t => ipcRenderer.send('titulo', t),
   rutaDe: file => { try { return webUtils.getPathForFile(file) || null; } catch (e) { return null; } },
   pdf: nombre => ipcRenderer.invoke('pdf', nombre),
