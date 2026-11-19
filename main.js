@@ -21,10 +21,13 @@ const FILTROS = {
   md: { name: 'Markdown', extensions: ['md'] }
 };
 
-let win = null;
-let archivoPendiente = archivoDeArgs(process.argv);
-let puedeCerrar = false;
+// Cada documento se abre en su propia ventana (como en Word)
+let archivoInicial = archivoDeArgs(process.argv);
+let contadorVentanas = 0;
 let ultimaCarpeta = null;
+const ventanaDe = e => BrowserWindow.fromWebContents(e.sender);
+const ventanaActiva = () => BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0] || null;
+const ejecutar = async (w, js, def) => { try { return await w.webContents.executeJavaScript(js); } catch (e) { return def; } };
 
 /* ---------- utilidades ---------- */
 function archivoDeArgs(argv) {
@@ -68,9 +71,10 @@ function anadirReciente(ruta) {
   ultimaCarpeta = path.dirname(ruta);
 }
 
-/* ---------- ventana ---------- */
-function crearVentana() {
-  win = new BrowserWindow({
+/* ---------- ventanas ---------- */
+function crearVentana(archivo) {
+  const anterior = ventanaActiva();
+  const opciones = {
     width: 1280, height: 900, minWidth: 420, minHeight: 400,
     title: 'MyText', show: false, autoHideMenuBar: true,
     icon: path.join(__dirname, 'assets', 'icon.png'),
@@ -79,22 +83,34 @@ function crearVentana() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true, nodeIntegration: false, spellcheck: true
     }
-  });
+  };
+  // Las ventanas nuevas aparecen un poco desplazadas respecto a la anterior
+  if (anterior && !anterior.isMaximized() && !anterior.isMinimized()) {
+    const b = anterior.getBounds();
+    Object.assign(opciones, { x: b.x + 30, y: b.y + 30, width: b.width, height: b.height });
+  }
+  const win = new BrowserWindow(opciones);
+  win._id = Date.now().toString(36) + '-' + (++contadorVentanas);
+  win._primera = contadorVentanas === 1;
+  win._archivoPendiente = archivo || null;
+  win._puedeCerrar = false;
+  const maximizar = !anterior || anterior.isMaximized() || anterior.isMinimized();
+
   Menu.setApplicationMenu(null);
   try { win.webContents.session.setSpellCheckerLanguages(['es-ES', 'es']); } catch (e) {}
 
   win.loadFile(editorActual().html);
-  win.once('ready-to-show', () => { win.maximize(); win.show(); });
+  win.once('ready-to-show', () => { if (maximizar) win.maximize(); win.show(); win.focus(); });
 
   win.webContents.on('did-finish-load', () => {
-    if (archivoPendiente) { const f = archivoPendiente; archivoPendiente = null; enviarArchivo(f, false); }
+    if (win._archivoPendiente) { const f = win._archivoPendiente; win._archivoPendiente = null; enviarArchivo(win, f, false); }
   });
 
   // Enlaces externos → navegador
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:|^mailto:/i.test(url)) shell.openExternal(url); return { action: 'deny' }; });
   win.webContents.on('will-navigate', (e, url) => { if (!url.startsWith('file:')) { e.preventDefault(); shell.openExternal(url); } });
 
-  // Atajos: herramientas de desarrollo y recargar
+  // Herramientas de desarrollo
   win.webContents.on('before-input-event', (e, input) => {
     if (input.type !== 'keyDown') return;
     if (input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i')) { win.webContents.toggleDevTools(); e.preventDefault(); }
@@ -121,39 +137,53 @@ function crearVentana() {
     if (items.length) Menu.buildFromTemplate(items).popup({ window: win });
   });
 
-  // Avisar de cambios sin guardar al cerrar
+  // Avisar de cambios sin guardar al cerrar esta ventana
   win.on('close', async e => {
-    if (puedeCerrar) return;
+    if (win._puedeCerrar) return;
     e.preventDefault();
-    let modificado = false;
-    try { modificado = await win.webContents.executeJavaScript('window.__mytextModificado === true'); } catch (err) {}
+    const modificado = await ejecutar(win, 'window.__mytextModificado === true', false);
     if (modificado) {
+      if (win.isMinimized()) win.restore();
+      win.focus();
       const r = dialog.showMessageBoxSync(win, {
         type: 'question', buttons: ['Guardar', 'No guardar', 'Cancelar'], defaultId: 0, cancelId: 2,
         title: 'MyText', message: '¿Quieres guardar los cambios antes de cerrar?'
       });
       if (r === 2) return;
-      if (r === 0) {
-        let ok = false;
-        try { ok = await win.webContents.executeJavaScript('window.__mytextGuardar ? window.__mytextGuardar() : false'); } catch (err) {}
-        if (!ok) return;
-      }
-      if (r === 1) {
-        // "No guardar": olvidar el documento para que no reaparezca al volver a abrir MyText
-        try { await win.webContents.executeJavaScript('window.__mytextDescartar ? window.__mytextDescartar() : true'); } catch (err) {}
-      }
+      if (r === 0 && !(await ejecutar(win, 'window.__mytextGuardar ? window.__mytextGuardar() : false', false))) return;
+      if (r === 1) await ejecutar(win, 'window.__mytextDescartar ? window.__mytextDescartar() : true', true);
     }
-    puedeCerrar = true;
+    win._puedeCerrar = true;
     win.close();
   });
-  win.on('closed', () => { win = null; });
+  return win;
 }
 
-// Antes de cambiar de documento: si hay cambios, preguntar Guardar / No guardar / Cancelar
-async function permitirCambio() {
+// Abre un archivo: en una ventana vacía si la hay (y no se ha tocado), si no en una ventana nueva.
+// Si ya está abierto en otra ventana, la trae al frente.
+async function abrirArchivo(ruta, preferida) {
+  const norm = r => path.resolve(r).toLowerCase();
+  for (const w of BrowserWindow.getAllWindows()) {
+    const r = await ejecutar(w, 'window.__mytextRuta ? window.__mytextRuta() : null', null);
+    if (r && norm(r) === norm(ruta)) { if (w.isMinimized()) w.restore(); w.show(); w.focus(); return w; }
+  }
+  const candidatas = [preferida, ventanaActiva(), ...BrowserWindow.getAllWindows()].filter(Boolean);
+  for (const w of [...new Set(candidatas)]) {
+    if (w.isDestroyed()) continue;
+    if (await ejecutar(w, 'window.__mytextVacio ? window.__mytextVacio() : false', false)) {
+      if (w.isMinimized()) w.restore();
+      w.show(); w.focus();
+      enviarArchivo(w, ruta, false);
+      return w;
+    }
+  }
+  return crearVentana(ruta);
+}
+
+// Antes de cambiar el documento de una ventana: si hay cambios, preguntar Guardar / No guardar / Cancelar
+async function permitirCambio(win) {
   if (!win) return true;
-  let modificado = false;
-  try { modificado = await win.webContents.executeJavaScript('window.__mytextHayCambios ? window.__mytextHayCambios() : window.__mytextModificado === true'); } catch (e) {}
+  const modificado = await ejecutar(win, 'window.__mytextHayCambios ? window.__mytextHayCambios() : window.__mytextModificado === true', false);
   if (!modificado) return true;
   if (win.isMinimized()) win.restore();
   win.show(); win.focus();
@@ -162,15 +192,14 @@ async function permitirCambio() {
     title: 'MyText', message: '¿Quieres guardar los cambios del documento actual?'
   });
   if (response === 2) return false;
-  if (response === 0) {
-    try { return !!(await win.webContents.executeJavaScript('window.__mytextGuardar ? window.__mytextGuardar() : false')); } catch (e) { return false; }
-  }
+  if (response === 0) return !!(await ejecutar(win, 'window.__mytextGuardar ? window.__mytextGuardar() : false', false));
   return true;
 }
-ipcMain.handle('confirmar-cambios', () => permitirCambio());
+ipcMain.handle('confirmar-cambios', e => permitirCambio(ventanaDe(e)));
 
-async function enviarArchivo(ruta, preguntar = true) {
-  if (preguntar && !(await permitirCambio())) return;
+async function enviarArchivo(win, ruta, preguntar = true) {
+  if (!win || win.isDestroyed()) return;
+  if (preguntar && !(await permitirCambio(win))) return;
   try {
     const datos = fs.readFileSync(ruta);
     win.webContents.send('abrir-archivo', { ruta, nombre: path.basename(ruta), datos: new Uint8Array(datos), forzar: true });
@@ -182,6 +211,7 @@ async function enviarArchivo(ruta, preguntar = true) {
 
 /* ---------- comunicación con el editor ---------- */
 ipcMain.on('info', e => {
+  const w = ventanaDe(e);
   const nm = path.join(__dirname, 'node_modules');
   const libs = {
     pdfjs: 'pdfjs-dist/build/pdf.min.js',
@@ -197,7 +227,10 @@ ipcMain.on('info', e => {
     try { if (fs.existsSync(f)) vendor[k] = pathToFileURL(f).href; } catch (err) {}
   }
   if (!vendor.pdfjs || !vendor.pdfjsWorker) { delete vendor.pdfjs; delete vendor.pdfjsWorker; }
-  e.returnValue = { versionPrograma: app.getVersion(), versionEditor: editorActual().version, vendor, archivoInicial: !!archivoPendiente };
+  e.returnValue = {
+    versionPrograma: app.getVersion(), versionEditor: editorActual().version, vendor,
+    archivoInicial: !!(w && w._archivoPendiente), ventana: w ? w._id : null, primera: !!(w && w._primera)
+  };
 });
 
 ipcMain.handle('guardar', async (e, { ruta, datos }) => {
@@ -207,6 +240,7 @@ ipcMain.handle('guardar', async (e, { ruta, datos }) => {
 
 ipcMain.handle('guardar-como', async (e, { nombre, datos }) => {
   const ext = (path.extname(nombre).slice(1) || 'docx').toLowerCase();
+  const win = ventanaDe(e);
   const r = await dialog.showSaveDialog(win, {
     title: 'Guardar como',
     defaultPath: path.join(ultimaCarpeta || app.getPath('documents'), nombre),
@@ -217,24 +251,27 @@ ipcMain.handle('guardar-como', async (e, { nombre, datos }) => {
   catch (err) { dialog.showErrorBox('MyText', 'No se pudo guardar:\n' + r.filePath + '\n\n' + err.message); return null; }
 });
 
-ipcMain.handle('abrir-dialogo', async () => {
+ipcMain.handle('abrir-dialogo', async e => {
+  const win = ventanaDe(e);
   const r = await dialog.showOpenDialog(win, {
-    title: 'Abrir', defaultPath: ultimaCarpeta || app.getPath('documents'), properties: ['openFile'],
+    title: 'Abrir', defaultPath: ultimaCarpeta || app.getPath('documents'), properties: ['openFile', 'multiSelections'],
     filters: [
       { name: 'Documentos', extensions: ['docx', 'doc', 'pdf', 'txt', 'md', 'html', 'htm', 'rtf', 'odt'] },
       { name: 'Todos los archivos', extensions: ['*'] }
     ]
   });
   if (r.canceled || !r.filePaths[0]) return false;
-  enviarArchivo(r.filePaths[0]);
+  for (const f of r.filePaths) await abrirArchivo(f, win);
   return true;
 });
 
-ipcMain.handle('abrir-ruta', (e, ruta) => { enviarArchivo(ruta); return true; });
+ipcMain.handle('abrir-ruta', async (e, ruta) => { await abrirArchivo(ruta, ventanaDe(e)); return true; });
+ipcMain.handle('nueva-ventana', () => { crearVentana(null); return true; });
 ipcMain.handle('recientes', () => recientes());
-ipcMain.on('titulo', (e, t) => { if (win) win.setTitle(String(t)); });
+ipcMain.on('titulo', (e, t) => { const w = ventanaDe(e); if (w) w.setTitle(String(t)); });
 
 ipcMain.handle('pdf', async (e, nombre) => {
+  const win = ventanaDe(e);
   const r = await dialog.showSaveDialog(win, {
     title: 'Guardar como PDF', defaultPath: path.join(ultimaCarpeta || app.getPath('documents'), nombre),
     filters: [FILTROS.pdf]
@@ -270,7 +307,8 @@ async function buscarActualizaciones() {
 }
 ipcMain.handle('buscar-actualizaciones', () => buscarActualizaciones());
 
-ipcMain.handle('actualizar-editor', async () => {
+ipcMain.handle('actualizar-editor', async e => {
+  const win = ventanaDe(e);
   try {
     const rv = await net.fetch(RAW + 'version.json?t=' + Date.now(), { cache: 'no-store' });
     const v = await rv.json();
@@ -297,8 +335,9 @@ ipcMain.handle('actualizar-programa', async () => {
 if (autoUpdater) {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.on('download-progress', p => { if (win) win.webContents.send('progreso', Math.round(p.percent)); });
+  autoUpdater.on('download-progress', p => { BrowserWindow.getAllWindows().forEach(w => w.webContents.send('progreso', Math.round(p.percent))); });
   autoUpdater.on('update-downloaded', info => {
+    const win = ventanaActiva();
     if (!win) return;
     const r = dialog.showMessageBoxSync(win, {
       type: 'info', buttons: ['Reiniciar ahora', 'Más tarde'], defaultId: 0, cancelId: 1, title: 'MyText',
@@ -313,21 +352,20 @@ if (autoUpdater) {
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
+  // Abrir MyText de nuevo (doble clic en otro archivo o en el icono) → otra ventana
   app.on('second-instance', (e, argv) => {
     const f = archivoDeArgs(argv);
-    if (win) {
-      if (win.isMinimized()) win.restore();
-      win.focus();
-      if (f) enviarArchivo(f);
-    }
+    if (f) abrirArchivo(f);
+    else crearVentana(null);
   });
   app.whenReady().then(() => {
-    crearVentana();
-    // Comprobación silenciosa al arrancar
+    const primera = crearVentana(archivoInicial);
+    archivoInicial = null;
+    // Comprobación silenciosa de actualizaciones al arrancar
     setTimeout(async () => {
-      if (!win) return;
       const r = await buscarActualizaciones();
-      if (win && (r.editor || r.programa || r.editorNecesitaPrograma)) win.webContents.send('hay-actualizacion', r);
+      const w = primera.isDestroyed() ? ventanaActiva() : primera;
+      if (w && (r.editor || r.programa || r.editorNecesitaPrograma)) w.webContents.send('hay-actualizacion', r);
     }, 5000);
   });
   app.on('window-all-closed', () => app.quit());

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
 <title>MyText</title>
-<meta name="mytext-version" content="1.0.4">
+<meta name="mytext-version" content="1.0.5">
 <style>
   :root{
     --bg:#e6e8ec; --bar:#ffffff; --line:#d5d9e0; --ink:#1f2430; --muted:#6b7280;
@@ -475,6 +475,8 @@
 </div>
 
 <script>
+// Dónde se guarda el documento abierto (en el programa, cada ventana usa las suyas)
+const CLAVE = {contenido: 'editor-contenido', nombre: 'editor-nombre', estado: 'mytext-estado', recarga: 'mytext-recargando'};
 const editor = document.getElementById('editor');
 const nombreDoc = document.getElementById('nombreDoc');
 const $ = id => document.getElementById(id);
@@ -2157,8 +2159,8 @@ function actualizar(){
   $('estadoGuardado').textContent = 'Guardando…';
   tGuardar = setTimeout(() => {
     try {
-      localStorage.setItem('editor-contenido', limpioParaExportar(false, true));
-      localStorage.setItem('editor-nombre', nombreDoc.value);
+      localStorage.setItem(CLAVE.contenido, limpioParaExportar(false, true));
+      localStorage.setItem(CLAVE.nombre, nombreDoc.value);
       $('estadoGuardado').textContent = 'Guardado en el navegador ' + new Date().toLocaleTimeString('es-ES', {hour:'2-digit', minute:'2-digit'});
     } catch(e){ $('estadoGuardado').textContent = 'Sin guardado automático (documento muy grande)'; }
   }, 700);
@@ -2502,6 +2504,34 @@ $('vpCerrar').onclick = () => cerrarVisorPdf(false);
 if (window.mytext) (function(){
   const M = window.mytext;
   document.body.classList.add('escritorio');
+  if (M.info.ventana){
+    const pref = 'mytext-v-' + M.info.ventana + '-';
+    const propias = {contenido: pref + 'contenido', nombre: pref + 'nombre', estado: pref + 'estado', recarga: pref + 'recargando'};
+    // Solo la primera ventana del programa recupera un documento que se quedó sin guardar (p. ej. por un apagón)
+    if (M.info.primera && !M.info.archivoInicial){
+      try {
+        const candidatos = [];
+        const legado = JSON.parse(localStorage.getItem('mytext-estado') || 'null');
+        if (legado && legado.modificado) candidatos.push({ts: legado.ts || 0, c: localStorage.getItem('editor-contenido'), n: localStorage.getItem('editor-nombre'), e: legado});
+        for (let i = 0; i < localStorage.length; i++){
+          const k = localStorage.key(i), m = k && k.match(/^mytext-v-(.+)-estado$/);
+          if (!m) continue;
+          const e = JSON.parse(localStorage.getItem(k) || 'null');
+          if (e && e.modificado) candidatos.push({ts: e.ts || 0, c: localStorage.getItem('mytext-v-' + m[1] + '-contenido'), n: localStorage.getItem('mytext-v-' + m[1] + '-nombre'), e});
+        }
+        const borrar = [];
+        for (let i = 0; i < localStorage.length; i++){ const k = localStorage.key(i); if (/^mytext-v-/.test(k) || ['editor-contenido', 'editor-nombre', 'mytext-estado', 'mytext-recargando'].includes(k)) borrar.push(k); }
+        borrar.forEach(k => localStorage.removeItem(k));
+        const mejor = candidatos.filter(x => x.c).sort((a, b) => b.ts - a.ts)[0];
+        if (mejor){
+          localStorage.setItem(propias.contenido, mejor.c);
+          if (mejor.n) localStorage.setItem(propias.nombre, mejor.n);
+          localStorage.setItem(propias.estado, JSON.stringify(mejor.e));
+        }
+      } catch(e){}
+    }
+    Object.assign(CLAVE, propias);
+  }
   Object.assign(CDN, M.info.vendor);                 // librerías incluidas en el programa (sin internet)
   const ESCRIBIBLES = {docx:'guardar-docx', html:'guardar-html', htm:'guardar-html', txt:'guardar-txt', md:'guardar-md', markdown:'guardar-md'};
   let ruta = null, destinoDirecto = null, esperando = null, silencio = 0;
@@ -2511,7 +2541,7 @@ if (window.mytext) (function(){
   const extDe = r => (r.split('.').pop() || '').toLowerCase();
   function titulo(){ M.titulo((window.__mytextModificado ? '● ' : '') + (ruta ? nombreDe(ruta) : (nombreDoc.value || 'Documento sin título')) + ' — MyText'); }
   function ponerModificado(v){ window.__mytextModificado = v; titulo(); guardarEstado(); }
-  function guardarEstado(){ try { localStorage.setItem('mytext-estado', JSON.stringify({ruta, modificado: window.__mytextModificado})); } catch(e){} }
+  function guardarEstado(){ try { localStorage.setItem(CLAVE.estado, JSON.stringify({ruta, modificado: window.__mytextModificado, ts: Date.now()})); } catch(e){} }
   function fijarRuta(r){ ruta = r; if (r) nombreDoc.value = nombreDe(r).replace(/\.[^.]+$/, ''); titulo(); guardarEstado(); }
 
   // Cualquier cambio en el contenido marca el documento como modificado
@@ -2520,7 +2550,7 @@ if (window.mytext) (function(){
   actualizar = function(){ actualizarOriginal(); if (!silencio){ editadoSesion = true; if (!window.__mytextModificado) ponerModificado(true); } };
   // Al cerrar con "No guardar": olvidar el documento para que no vuelva a aparecer al abrir el programa
   window.__mytextDescartar = () => {
-    try { ['editor-contenido', 'editor-nombre', 'mytext-estado'].forEach(k => localStorage.removeItem(k)); } catch(e){}
+    try { [CLAVE.contenido, CLAVE.nombre, CLAVE.estado].forEach(k => localStorage.removeItem(k)); } catch(e){}
     clearTimeout(tGuardar); window.__mytextModificado = false; editadoSesion = false;
     silencio++;   // que nada vuelva a guardarlo antes de cerrar
     return true;
@@ -2530,13 +2560,13 @@ if (window.mytext) (function(){
   // o si el editor se está recargando por una actualización. Nunca si MyText se abrió con un archivo.
   let recargando = false;
   try {
-    recargando = localStorage.getItem('mytext-recargando') === '1';
-    localStorage.removeItem('mytext-recargando');
-    const est = JSON.parse(localStorage.getItem('mytext-estado') || 'null');
+    recargando = localStorage.getItem(CLAVE.recarga) === '1';
+    localStorage.removeItem(CLAVE.recarga);
+    const est = JSON.parse(localStorage.getItem(CLAVE.estado) || 'null');
     const pendiente = !!(est && est.modificado);
     if (M.info.archivoInicial || (!pendiente && !recargando)){
       window.__mytextSinRestaurar = true;
-      ['editor-contenido', 'editor-nombre', 'mytext-estado'].forEach(k => localStorage.removeItem(k));
+      [CLAVE.contenido, CLAVE.nombre, CLAVE.estado].forEach(k => localStorage.removeItem(k));
     }
   } catch(e){}
   // Al cerrar la ventana sin cambios pendientes, no dejar nada guardado que pueda reaparecer
@@ -2590,6 +2620,9 @@ if (window.mytext) (function(){
   window.__mytextMarcarCambio = () => { editadoSesion = true; ponerModificado(true); };
   window.__mytextReiniciar = () => { ruta = null; ponerModificado(false); };
   window.__mytextGuardar = guardar;
+  if (M.nuevaVentana) document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'n'){ e.preventDefault(); acciones.nuevo(); }
+  });
   window.__mytextGuardarAtajo = shift => shift ? guardarComo() : guardar();
 
   // PDF con el motor de impresión del programa (texto real, no imagen)
@@ -2603,8 +2636,11 @@ if (window.mytext) (function(){
     return !hayCambios() || confirm('Hay cambios sin guardar. ¿Descartarlos?');
   };
   window.__mytextHayCambios = () => !!window.__mytextModificado;
+  window.__mytextRuta = () => ruta;
+  window.__mytextVacio = () => !visor.activo && !ruta && !window.__mytextModificado && !editor.textContent.trim() && !editor.querySelector('img,table,hr');
   acciones.abrir = async () => { if (preguntaPrograma || await descartarCambios()) M.abrir(); };
   acciones.nuevo = async () => {
+    if (M.nuevaVentana && !window.__mytextVacio()){ M.nuevaVentana(); return; }   // como en Word: otra ventana
     if (!(await descartarCambios())) return;
     if (visor.activo) cerrarVisorPdf(true, true);
     silencio++; editor.innerHTML = ''; nombreDoc.value = 'Documento sin título'; actualizar(); silencio--;
@@ -2636,7 +2672,7 @@ if (window.mytext) (function(){
   // Menú Archivo: Guardar, Guardar como, Recientes
   const opcArchivo = document.querySelector('.desplegable .opciones');
   opcArchivo.insertAdjacentHTML('afterbegin', `
-    <button id="mtNuevo">Nuevo <kbd>Ctrl+Alt+N</kbd></button>
+    <button id="mtNuevo">Nuevo <kbd>${M.nuevaVentana ? 'Ctrl+N' : 'Ctrl+Alt+N'}</kbd></button>
     <button id="mtAbrir">Abrir… <kbd>Ctrl+O</kbd></button>
     <div id="listaRecientes"></div>
     <hr>
@@ -2697,10 +2733,10 @@ if (window.mytext) (function(){
   async function actualizarEditor(){
     guardarAhora();
     saliendoPorActualizacion = true;
-    try { localStorage.setItem('mytext-recargando', '1'); } catch(e){}
+    try { localStorage.setItem(CLAVE.recarga, '1'); } catch(e){}
     banner.innerHTML = 'Actualizando el editor…';
     const res = await M.actualizarEditor();
-    if (!res.ok){ saliendoPorActualizacion = false; try { localStorage.removeItem('mytext-recargando'); } catch(e){} banner.innerHTML = 'No se pudo actualizar: ' + escapar(res.error || '') + ' <button class="cerrar" id="mtCerrarBanner">✕</button>'; $('mtCerrarBanner').onclick = () => banner.classList.remove('visible'); }
+    if (!res.ok){ saliendoPorActualizacion = false; try { localStorage.removeItem(CLAVE.recarga); } catch(e){} banner.innerHTML = 'No se pudo actualizar: ' + escapar(res.error || '') + ' <button class="cerrar" id="mtCerrarBanner">✕</button>'; $('mtCerrarBanner').onclick = () => banner.classList.remove('visible'); }
   }
   async function buscarActualizaciones(silencioso){
     if (!silencioso) aviso('Buscando actualizaciones…');
@@ -2713,15 +2749,15 @@ if (window.mytext) (function(){
   // Guardar el estado al instante (antes de recargar el editor actualizado)
   function guardarAhora(){
     try {
-      localStorage.setItem('editor-contenido', limpioParaExportar(false, true));
-      localStorage.setItem('editor-nombre', nombreDoc.value);
+      localStorage.setItem(CLAVE.contenido, limpioParaExportar(false, true));
+      localStorage.setItem(CLAVE.nombre, nombreDoc.value);
     } catch(e){}
     guardarEstado();
   }
 
   // Al arrancar: recuperar el documento de la última sesión
   try {
-    const est = window.__mytextSinRestaurar ? null : JSON.parse(localStorage.getItem('mytext-estado') || 'null');
+    const est = window.__mytextSinRestaurar ? null : JSON.parse(localStorage.getItem(CLAVE.estado) || 'null');
     if (est){ ruta = est.ruta || null; window.__mytextModificado = !!est.modificado; }
   } catch(e){}
   silencio++; setTimeout(() => { silencio--; titulo(); }, 0);   // el arranque no cuenta como cambio
@@ -2734,8 +2770,8 @@ try {
   if (localStorage.getItem('editor-oscuro')) document.body.classList.add('oscuro');
   if (localStorage.getItem('editor-indice') === '0') $('indice').classList.add('oculto');
   if (localStorage.getItem('editor-corrector') === '0'){ editor.spellcheck = false; $('txtCorrector').textContent = 'Corrector ortográfico: desactivado'; }
-  const guardado = localStorage.getItem('editor-contenido');
-  if (guardado && !window.__mytextSinRestaurar){ editor.innerHTML = guardado; nombreDoc.value = localStorage.getItem('editor-nombre') || nombreDoc.value; }
+  const guardado = localStorage.getItem(CLAVE.contenido);
+  if (guardado && !window.__mytextSinRestaurar){ editor.innerHTML = guardado; nombreDoc.value = localStorage.getItem(CLAVE.nombre) || nombreDoc.value; }
 } catch(e){}
 aplicarEstilos(false);
 normalizarSaltos();

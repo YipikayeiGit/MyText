@@ -1,5 +1,5 @@
 {
-  "version": "1.0.4",
+  "version": "1.0.5",
   "minApp": "1.0.0",
-  "notas": "Visor de PDF con edición de texto; abre .doc antiguos"
+  "notas": "Cada documento en su propia ventana (con el programa 1.0.3)"
 }

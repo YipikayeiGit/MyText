@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('mytext', {
   guardarComo: (nombre, datos) => ipcRenderer.invoke('guardar-como', { nombre, datos }),
   abrir: () => ipcRenderer.invoke('abrir-dialogo'),
   abrirRuta: ruta => ipcRenderer.invoke('abrir-ruta', ruta),
+  nuevaVentana: () => ipcRenderer.invoke('nueva-ventana'),
   recientes: () => ipcRenderer.invoke('recientes'),
   confirmarCambios: () => ipcRenderer.invoke('confirmar-cambios'),
   titulo: t => ipcRenderer.send('titulo', t),
