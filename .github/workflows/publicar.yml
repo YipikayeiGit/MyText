@@ -5,7 +5,7 @@ name: Publicar programa
 on:
   push:
     branches: [main]
-    paths: ['package.json', 'main.js', 'preload.js']
+    paths: ['package.json', 'main.js', 'preload.js', '.github/workflows/publicar.yml']
   workflow_dispatch:
 
 permissions:
@@ -15,14 +15,14 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Instalar dependencias
-        run: npm install
+        run: npm install --omit=optional
 
       - name: Construir y publicar el instalador
         run: npx electron-builder --win --publish always

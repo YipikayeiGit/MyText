@@ -41,7 +41,9 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "build/icon.png"
@@ -56,13 +58,54 @@
       "artifactName": "MyText-Setup-${version}.${ext}"
     },
     "fileAssociations": [
-      { "ext": "docx", "name": "MyText.docx", "description": "Documento de Word", "role": "Editor" },
-      { "ext": "pdf", "name": "MyText.pdf", "description": "Documento PDF", "role": "Editor" },
-      { "ext": "txt", "name": "MyText.txt", "description": "Documento de texto", "role": "Editor" },
-      { "ext": ["md", "markdown"], "name": "MyText.md", "description": "Documento Markdown", "role": "Editor" },
-      { "ext": ["html", "htm"], "name": "MyText.html", "description": "Página web", "role": "Editor" },
-      { "ext": "rtf", "name": "MyText.rtf", "description": "Texto enriquecido", "role": "Editor" },
-      { "ext": "odt", "name": "MyText.odt", "description": "Documento OpenDocument", "role": "Editor" }
+      {
+        "ext": "docx",
+        "name": "MyText.docx",
+        "description": "Documento de Word",
+        "role": "Editor"
+      },
+      {
+        "ext": "pdf",
+        "name": "MyText.pdf",
+        "description": "Documento PDF",
+        "role": "Editor"
+      },
+      {
+        "ext": "txt",
+        "name": "MyText.txt",
+        "description": "Documento de texto",
+        "role": "Editor"
+      },
+      {
+        "ext": [
+          "md",
+          "markdown"
+        ],
+        "name": "MyText.md",
+        "description": "Documento Markdown",
+        "role": "Editor"
+      },
+      {
+        "ext": [
+          "html",
+          "htm"
+        ],
+        "name": "MyText.html",
+        "description": "Página web",
+        "role": "Editor"
+      },
+      {
+        "ext": "rtf",
+        "name": "MyText.rtf",
+        "description": "Texto enriquecido",
+        "role": "Editor"
+      },
+      {
+        "ext": "odt",
+        "name": "MyText.odt",
+        "description": "Documento OpenDocument",
+        "role": "Editor"
+      }
     ],
     "publish": [
       {
@@ -71,6 +114,7 @@
         "repo": "MyText",
         "releaseType": "release"
       }
-    ]
+    ],
+    "npmRebuild": false
   }
 }
