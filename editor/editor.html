@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
 <title>MyText</title>
-<meta name="mytext-version" content="1.0.3">
+<meta name="mytext-version" content="1.0.4">
 <style>
   :root{
     --bg:#e6e8ec; --bar:#ffffff; --line:#d5d9e0; --ink:#1f2430; --muted:#6b7280;
@@ -142,6 +142,48 @@
   #aviso.visible{opacity:1}
   #cargando{display:none;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:90;align-items:center;justify-content:center;color:#fff;font-size:16px}
   #cargando.visible{display:flex}
+  /* ===== Visor de PDF ===== */
+  #visorPdf{flex:1;display:none;flex-direction:column;min-width:0;background:#525659}
+  body.modo-pdf #visorPdf{display:flex}
+  body.modo-pdf .zona, body.modo-pdf .herramientas, body.modo-pdf #indice, body.modo-pdf #cuentaPalabras, body.modo-pdf #cuentaCaracteres, body.modo-pdf #estadoGuardado, body.modo-pdf .estado .der{display:none!important}
+  .vbarra{display:flex;align-items:center;gap:4px;flex-wrap:wrap;padding:6px 10px;background:var(--bar);border-bottom:1px solid var(--line);color:var(--ink);font-size:14px}
+  .vbarra button{height:32px;min-width:32px;border:1px solid transparent;background:none;color:var(--ink);border-radius:5px;cursor:pointer;font:inherit;padding:0 8px}
+  .vbarra button:hover{background:var(--hover)}
+  .vbarra button.prim{background:var(--accent);color:#fff}
+  .vbarra button.prim:hover{filter:brightness(1.08)}
+  .vbarra button.activo{background:var(--activo);border-color:var(--line)}
+  .vbarra .vnombre{font-weight:600;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:0 6px}
+  .vbarra .hueco{flex:1}
+  .vbarra .sep{width:1px;height:22px;background:var(--line);margin:0 4px}
+  #vpZoom{min-width:48px;text-align:center;font-variant-numeric:tabular-nums}
+  #vpEdicion{display:none;align-items:center;gap:4px}
+  body.pdf-editando #vpEdicion{display:flex}
+  body.pdf-editando #vpEditar, body.pdf-editando #vpConvertir{display:none}
+  .vayuda{display:none;background:#fff7d6;color:#5a4a00;padding:6px 12px;font-size:13px;border-bottom:1px solid #e8d98a}
+  body.pdf-editando .vayuda{display:block}
+  .vpaginas{flex:1;overflow:auto;padding:20px 10px 60px}
+  .vpagina{position:relative;margin:0 auto 16px;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.45)}
+  .vpagina canvas{position:absolute;left:0;top:0;display:block}
+  .vpagina .vcargando{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#999;font-size:13px}
+  .textLayer{position:absolute;inset:0;overflow:hidden;line-height:1;text-size-adjust:none;forced-color-adjust:none;transform-origin:0 0;z-index:2}
+  .textLayer span,.textLayer br{color:transparent;position:absolute;white-space:pre;cursor:text;transform-origin:0% 0%}
+  .textLayer ::selection{background:rgba(0,90,255,.3)}
+  .capaEdicion{position:absolute;inset:0;z-index:3}
+  body.pdf-anadiendo .capaEdicion{cursor:crosshair}
+  .vlinea{position:absolute;white-space:pre;line-height:1.15;color:transparent;outline:none;border-radius:2px;cursor:text;padding:0 1px;caret-color:#000}
+  .vlinea:hover{box-shadow:0 0 0 1px rgba(47,111,222,.7);background:rgba(47,111,222,.06)}
+  .vlinea:focus,.vlinea.editada{color:#000;background:#fff;box-shadow:0 0 0 1.5px var(--accent)}
+  .vlinea.editada:not(:focus){box-shadow:0 0 0 1px rgba(47,111,222,.35)}
+  .vlinea.nueva{min-width:40px}
+  @media (max-width: 820px){ .vbarra .vnombre{flex-basis:100%;max-width:none;margin:0 0 2px} .vpaginas{padding:10px 4px 40px} }
+  @media print{
+    body.modo-pdf .vbarra, body.modo-pdf .vayuda{display:none!important}
+    body.modo-pdf #visorPdf{display:block!important;background:#fff}
+    body.modo-pdf .vpaginas{overflow:visible;padding:0}
+    body.modo-pdf .vpagina{box-shadow:none;margin:0;break-after:page;page-break-after:always}
+    body.modo-pdf .vlinea{box-shadow:none!important}
+  }
+
 
 
   /* ===== Vista móvil (texto a todo el ancho, sin hojas) ===== */
@@ -366,6 +408,28 @@
     <h4>Índice <button data-accion="indice" title="Ocultar">✕</button></h4>
     <div id="listaIndice"></div>
   </aside>
+  <div id="visorPdf">
+    <div class="vbarra">
+      <button id="vpCerrar" title="Cerrar el PDF">✕</button>
+      <span class="vnombre" id="vpNombre"></span>
+      <span class="sep"></span>
+      <button id="vpMenos" title="Alejar">−</button><span id="vpZoom">100%</span><button id="vpMas" title="Acercar">+</button>
+      <button id="vpAjustar" title="Ajustar al ancho">↔</button>
+      <span class="sep"></span>
+      <button id="vpImprimir" title="Imprimir">🖨</button>
+      <span class="hueco"></span>
+      <button id="vpEditar" class="prim" title="Cambiar los textos directamente sobre el PDF, manteniendo su diseño">✏️ Editar texto</button>
+      <button id="vpConvertir" title="Pasar el PDF a un documento editable normal (el diseño exacto se pierde)">📝 Convertir a documento</button>
+      <span id="vpEdicion">
+        <button id="vpAnadir" title="Haz clic en la página donde quieras añadir texto">＋ Añadir texto</button>
+        <button id="vpGuardar" class="prim">💾 Guardar PDF</button>
+        <button id="vpGuardarComo">Guardar como…</button>
+        <button id="vpTerminar">Terminar edición</button>
+      </span>
+    </div>
+    <div class="vayuda">Haz clic en cualquier texto del PDF para cambiarlo. Con «＋ Añadir texto» puedes escribir en cualquier parte de la página.</div>
+    <div class="vpaginas" id="vpPaginas"></div>
+  </div>
   <div class="zona" id="zona">
     <div class="envoltorio" id="envoltorio">
       <div class="documento" id="documento">
@@ -399,7 +463,7 @@
   <div class="info" id="infoBuscar"></div>
 </div>
 
-<input type="file" id="archivo" hidden accept=".txt,.md,.markdown,.html,.htm,.rtf,.docx,.pdf,.csv,.json,.xml,.log,.odt">
+<input type="file" id="archivo" hidden accept=".txt,.md,.markdown,.html,.htm,.rtf,.doc,.docx,.pdf,.csv,.json,.xml,.log,.odt">
 <input type="file" id="archivoImagen" hidden accept="image/*">
 <div id="aviso"></div>
 <div id="cargando">Cargando…</div>
@@ -419,7 +483,8 @@ const CDN = {
   pdfjsWorker: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js',
   mammoth: 'https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js',
   jszip: 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
-  html2pdf: 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js'
+  html2pdf: 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js',
+  pdflib: 'https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js'
 };
 
 /* ================= utilidades ================= */
@@ -715,7 +780,7 @@ const acciones = {
   },
   'guardar-txt'(){ const c = document.createElement('div'); c.innerHTML = limpioParaExportar(true); document.body.appendChild(c); const t = c.innerText; c.remove(); descargar(t, nombreBase() + '.txt', 'text/plain;charset=utf-8'); },
   'guardar-md'(){ const c = document.createElement('div'); c.innerHTML = limpioParaExportar(true); descargar(htmlAMarkdown(c), nombreBase() + '.md', 'text/markdown;charset=utf-8'); },
-  imprimir(){ window.print(); },
+  imprimir(){ if (visor.activo) imprimirPdf(); else window.print(); },
   buscar(){ abrirBuscador(); },
   copiar(){ restaurarSeleccion(); document.execCommand('copy'); },
   cortar(){ restaurarSeleccion(); document.execCommand('cut'); actualizar(); },
@@ -1039,8 +1104,11 @@ async function abrirArchivo(file, sinConfirmar = false){
   try {
     cargando(true, 'Abriendo ' + file.name + '…');
     let html;
+    if (ext === 'pdf'){ await abrirVisorPdf(file); aviso('Abierto: ' + file.name); return true; }
+    if (visor.activo) cerrarVisorPdf(true, true);
     if (ext === 'pdf') html = await leerPdf(file);
     else if (ext === 'docx') html = await leerDocx(file);
+    else if (ext === 'doc' || ext === 'dot') html = await leerDoc(file);
     else if (ext === 'odt') html = await leerOdt(file);
     else {
       const texto = await file.text();
@@ -1188,6 +1256,149 @@ async function leerPdf(file){
     if (n < pdf.numPages) html += '<div class="salto-pagina" contenteditable="false"></div>';
   }
   if (totalTexto < 20) throw new Error('Este PDF no contiene texto seleccionable (probablemente es un documento escaneado o una imagen). Haría falta OCR para poder editarlo.');
+  return html;
+}
+
+
+/* Word 97-2003 (.doc). Muchos ".doc" son en realidad RTF, HTML o .docx renombrados: se detecta por el contenido */
+async function leerDoc(file){
+  const buf = new Uint8Array(await file.arrayBuffer());
+  const inicio = new TextDecoder('latin1').decode(buf.slice(0, 600)).toLowerCase();
+  if (buf[0] === 0x50 && buf[1] === 0x4B) return leerDocx(file);                                 // .docx renombrado
+  if (inicio.startsWith('{\\rtf')) return rtfAHtml(new TextDecoder('windows-1252').decode(buf));   // RTF
+  if (/<html|<!doctype html|<body|xmlns:w=/.test(inicio)){                                          // HTML de Word
+    let texto = new TextDecoder('utf-8').decode(buf);
+    if (texto.includes('�')) texto = new TextDecoder('windows-1252').decode(buf);
+    return extraerCuerpo(texto);
+  }
+  if (!(buf[0] === 0xD0 && buf[1] === 0xCF && buf[2] === 0x11 && buf[3] === 0xE0)) return textoAHtml(new TextDecoder('windows-1252').decode(buf));
+  return docBinarioAHtml(buf);
+}
+function leerCFB(buf){
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  const u16 = o => dv.getUint16(o, true), u32 = o => dv.getUint32(o, true);
+  const ss = 1 << u16(0x1E), mss = 1 << u16(0x20);
+  const off = n => (n + 1) * ss;
+  const FIN = 0xFFFFFFFE;
+  // Tabla FAT
+  const fatSect = [];
+  for (let i = 0; i < 109; i++){ const v = u32(0x4C + i * 4); if (v < 0xFFFFFFFA) fatSect.push(v); }
+  let difat = u32(0x44), nDifat = u32(0x48);
+  while (difat < 0xFFFFFFFA && nDifat-- > 0){
+    const o = off(difat);
+    for (let i = 0; i < ss / 4 - 1; i++){ const v = u32(o + i * 4); if (v < 0xFFFFFFFA) fatSect.push(v); }
+    difat = u32(o + ss - 4);
+  }
+  const fat = [];
+  fatSect.forEach(sct => { const o = off(sct); for (let i = 0; i < ss / 4; i++) fat.push(o + i * 4 + 4 <= buf.length ? u32(o + i * 4) : FIN); });
+  const cadena = (ini, tabla) => { const c = []; let n = ini, guard = 0; while (n < 0xFFFFFFFA && guard++ < 1e6){ c.push(n); n = tabla[n]; } return c; };
+  const leerSectores = (ini, tam) => {
+    const out = new Uint8Array(tam); let p = 0;
+    for (const n of cadena(ini, fat)){ const o = off(n); const t = Math.min(ss, tam - p); if (t <= 0) break; out.set(buf.subarray(o, o + t), p); p += t; }
+    return out;
+  };
+  // Directorio
+  const dir = [];
+  const dirBytes = (() => { const c = cadena(u32(0x30), fat); const out = new Uint8Array(c.length * ss); c.forEach((n, i) => out.set(buf.subarray(off(n), off(n) + ss), i * ss)); return out; })();
+  const dd = new DataView(dirBytes.buffer);
+  for (let o = 0; o + 128 <= dirBytes.length; o += 128){
+    const len = dd.getUint16(o + 0x40, true); if (!len) continue;
+    let nombre = ''; for (let i = 0; i < len / 2 - 1; i++) nombre += String.fromCharCode(dd.getUint16(o + i * 2, true));
+    dir.push({nombre, tipo: dirBytes[o + 0x42], ini: dd.getUint32(o + 0x74, true), tam: dd.getUint32(o + 0x78, true)});
+  }
+  const raiz = dir.find(d => d.tipo === 5);
+  const corte = u32(0x38);
+  let mini = null, minifat = null;
+  const flujo = nombre => {
+    const d = dir.find(x => x.nombre === nombre && x.tipo === 2); if (!d) return null;
+    if (d.tam >= corte) return leerSectores(d.ini, d.tam);
+    if (!mini){
+      mini = leerSectores(raiz.ini, raiz.tam);
+      const mf = leerSectores(u32(0x3C), u32(0x40) * ss); const mdv = new DataView(mf.buffer);
+      minifat = []; for (let i = 0; i + 4 <= mf.length; i += 4) minifat.push(mdv.getUint32(i, true));
+    }
+    const out = new Uint8Array(d.tam); let p = 0;
+    for (const n of cadena(d.ini, minifat)){ const t = Math.min(mss, d.tam - p); if (t <= 0) break; out.set(mini.subarray(n * mss, n * mss + t), p); p += t; }
+    return out;
+  };
+  return {flujo, nombres: dir.map(d => d.nombre)};
+}
+function docBinarioAHtml(buf){
+  const cfb = leerCFB(buf);
+  const wd = cfb.flujo('WordDocument');
+  if (!wd) throw new Error('El archivo .doc no tiene un documento de Word reconocible.');
+  const dv = new DataView(wd.buffer);
+  if (dv.getUint16(0, true) !== 0xA5EC) throw new Error('Formato .doc no reconocido.');
+  const nFib = dv.getUint16(2, true), flags = dv.getUint16(0x0A, true);
+  if (flags & 0x0100) throw new Error('Este .doc está protegido con contraseña.');
+  if (nFib < 101) throw new Error('Este .doc es de Word 6 o Word 95 (muy antiguo). Ábrelo en Word o LibreOffice y guárdalo como .docx.');
+  const tabla = cfb.flujo((flags & 0x0200) ? '1Table' : '0Table');
+  if (!tabla) throw new Error('Falta la tabla interna del documento .doc.');
+  let pos = 32; const csw = dv.getUint16(pos, true); pos += 2 + csw * 2;
+  const cslw = dv.getUint16(pos, true); pos += 2;
+  const ccpText = dv.getUint32(pos + 12, true); pos += cslw * 4;
+  pos += 2;
+  const fcClx = dv.getUint32(pos + 66 * 4, true), lcbClx = dv.getUint32(pos + 67 * 4, true);
+  const tv = new DataView(tabla.buffer);
+  let o = fcClx; const finClx = fcClx + lcbClx;
+  while (o < finClx && tabla[o] === 0x01){ o += 3 + tv.getInt16(o + 1, true); }
+  if (tabla[o] !== 0x02) throw new Error('No se encontró el texto del documento .doc.');
+  const lcb = tv.getUint32(o + 1, true); o += 5;
+  const n = (lcb - 4) / 12;
+  const cp = []; for (let i = 0; i <= n; i++) cp.push(tv.getUint32(o + i * 4, true));
+  const dec1252 = new TextDecoder('windows-1252'), dec16 = new TextDecoder('utf-16le');
+  let texto = '';
+  for (let i = 0; i < n && cp[i] < ccpText; i++){
+    const pcd = o + (n + 1) * 4 + i * 8;
+    let fc = tv.getUint32(pcd + 2, true);
+    const comprimido = (fc & 0x40000000) !== 0; fc &= 0x3FFFFFFF;
+    const cuantos = Math.min(cp[i + 1], ccpText) - cp[i];
+    texto += comprimido ? dec1252.decode(wd.subarray(fc / 2, fc / 2 + cuantos)) : dec16.decode(wd.subarray(fc, fc + cuantos * 2));
+  }
+  // Campos: quedarse solo con el resultado visible
+  let limpio = '', nivel = [], i2 = 0;
+  for (const ch of texto){
+    if (ch === '\x13'){ nivel.push('codigo'); continue; }
+    if (ch === '\x14'){ if (nivel.length) nivel[nivel.length - 1] = 'resultado'; continue; }
+    if (ch === '\x15'){ nivel.pop(); continue; }
+    if (nivel.includes('codigo')) continue;
+    limpio += ch;
+  }
+  limpio = limpio.replace(/[\x01\x02\x05\x08]/g, '').replace(/\x1e/g, '-').replace(/\x1f/g, '').replace(/\xa0/g, ' ');
+  // Construir párrafos, tablas y saltos de página
+  // \r = fin de párrafo · \x07 = fin de celda (dos seguidos = fin de fila) · \x0c = salto de página · \x0b = salto de línea
+  const linea = t => escapar(t).replace(/\x0b/g, '<br>');
+  let html = '', par = '', celda = [], fila = [], tablaAbierta = false, finCelda = false;
+  const cerrarTabla = () => { if (tablaAbierta){ html += '</tbody></table>'; tablaAbierta = false; } };
+  const cerrarParrafo = () => { html += par.trim() ? `<p>${linea(par)}</p>` : '<p><br></p>'; par = ''; };
+  for (const ch of limpio){
+    if (ch === '\x07'){
+      if (!par && !celda.length && finCelda){
+        if (!tablaAbierta){ html += '<table><tbody>'; tablaAbierta = true; }
+        html += '<tr>' + fila.map(c => `<td>${c || '<br>'}</td>`).join('') + '</tr>';
+        fila = []; finCelda = false;
+      } else {
+        celda.push(linea(par)); par = '';
+        fila.push(celda.join('<br>')); celda = []; finCelda = true;
+      }
+      continue;
+    }
+    finCelda = false;
+    if (ch === '\r'){
+      if (fila.length){ celda.push(linea(par)); par = ''; }
+      else { cerrarTabla(); cerrarParrafo(); }
+      continue;
+    }
+    if (ch === '\x0c'){
+      cerrarTabla(); if (par.trim()) cerrarParrafo(); par = '';
+      html += '<div class="salto-pagina" contenteditable="false"></div>';
+      continue;
+    }
+    par += ch;
+  }
+  cerrarTabla(); if (par.trim()) cerrarParrafo();
+  html = html.replace(/(<p><br><\/p>)+$/, '');
+  if (!html.replace(/<[^>]+>/g, '').trim()) throw new Error('No se encontró texto en este .doc.');
   return html;
 }
 
@@ -1964,7 +2175,7 @@ document.addEventListener('keydown', e => {
   }
   if (!ctrl) return;
   const k = e.key.toLowerCase();
-  if (k === 's'){ e.preventDefault(); if (window.__mytextGuardarAtajo) window.__mytextGuardarAtajo(e.shiftKey); else exportarDocx(); }
+  if (k === 's'){ e.preventDefault(); if (window.__mytextGuardarAtajo) window.__mytextGuardarAtajo(e.shiftKey); else if (visor.activo) exportarPdfEditado(); else exportarDocx(); }
   else if (k === 'o'){ e.preventDefault(); acciones.abrir(); }
   else if (k === 'f' || k === 'h'){ e.preventDefault(); abrirBuscador(); }
   else if (k === 'k'){ e.preventDefault(); acciones.enlace(); }
@@ -2010,6 +2221,282 @@ $('zoom').addEventListener('input', () => { zoomManual = true; });
 window.addEventListener('resize', () => { clearTimeout(ajustarAncho.t); ajustarAncho.t = setTimeout(() => { ajustarAncho(); paginarPronto(); }, 120); });
 $('fondoIndice').addEventListener('click', () => { $('indice').classList.remove('movil-abierto'); $('fondoIndice').classList.remove('visible'); });
 
+
+
+/* ================= visor de PDF ================= */
+const visor = { activo:false, pdf:null, bytes:null, nombre:'', escala:1, paginas:[], editando:false, anadiendo:false, cambios:false, gen:0, obs:null };
+window.__visorPdf = visor;
+const vp$ = $('vpPaginas');
+const DPR = () => Math.min(window.devicePixelRatio || 1, 2);
+
+async function abrirVisorPdf(file){
+  await cargarScript(CDN.pdfjs);
+  pdfjsLib.GlobalWorkerOptions.workerSrc = CDN.pdfjsWorker;
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const pdf = await pdfjsLib.getDocument({data: bytes.slice()}).promise;
+  if (visor.pdf) try { visor.pdf.destroy(); } catch(e){}
+  Object.assign(visor, {activo:true, pdf, bytes, nombre:file.name, paginas:[], editando:false, anadiendo:false, cambios:false});
+  document.body.classList.add('modo-pdf'); document.body.classList.remove('pdf-editando', 'pdf-anadiendo');
+  $('vpNombre').textContent = file.name; $('vpNombre').title = file.name;
+  nombreDoc.value = file.name.replace(/\.[^.]+$/, '');
+  editor.innerHTML = '';
+  deseleccionarImagen && deseleccionarImagen();
+  for (let i = 1; i <= pdf.numPages; i++){
+    const page = await pdf.getPage(i);
+    const v = page.getViewport({scale: 1});
+    visor.paginas.push({n: i, page, w: v.width, h: v.height, texto: null, lineas: null});
+  }
+  ponerPaginaCss();
+  visor.escala = escalaAjustada();
+  maquetarPaginas();
+  vp$.scrollTop = 0;
+}
+function ponerPaginaCss(){
+  let st = $('estiloPaginaPdf');
+  if (!st){ st = document.createElement('style'); st.id = 'estiloPaginaPdf'; document.head.appendChild(st); }
+  const p = visor.paginas[0];
+  st.textContent = visor.activo && p ? `@media print{@page{size:${p.w}pt ${p.h}pt;margin:0}}` : '';
+}
+function escalaAjustada(){
+  const ancho = Math.max(...visor.paginas.map(p => p.w));
+  const disp = vp$.clientWidth - (esMovil() ? 10 : 40);
+  return Math.max(0.3, Math.min(disp / ancho, esMovil() ? 3 : 1.6));
+}
+function maquetarPaginas(){
+  visor.gen++;
+  if (visor.obs) visor.obs.disconnect();
+  vp$.innerHTML = '';
+  $('vpZoom').textContent = Math.round(visor.escala * 100) + '%';
+  visor.obs = new IntersectionObserver(ents => ents.forEach(e => { if (e.isIntersecting) renderPagina(e.target._pag); }), {root: vp$, rootMargin: '800px 0px'});
+  visor.paginas.forEach(p => {
+    const d = document.createElement('div'); d.className = 'vpagina';
+    d.style.width = (p.w * visor.escala) + 'px'; d.style.height = (p.h * visor.escala) + 'px';
+    d.innerHTML = `<div class="vcargando">Página ${p.n}</div>`;
+    d._pag = p; p.el = d; p.renderizada = false;
+    vp$.appendChild(d); visor.obs.observe(d);
+  });
+  paginaPdfActual();
+}
+async function renderPagina(p){
+  if (p.renderizada) return;
+  p.renderizada = true;
+  const gen = visor.gen, esc = visor.escala, dpr = DPR();
+  const v = p.page.getViewport({scale: esc});
+  const cv = document.createElement('canvas');
+  cv.width = Math.floor(v.width * dpr); cv.height = Math.floor(v.height * dpr);
+  cv.style.width = v.width + 'px'; cv.style.height = v.height + 'px';
+  try {
+    await p.page.render({canvasContext: cv.getContext('2d'), viewport: v, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null}).promise;
+  } catch(e){ p.renderizada = false; return; }
+  if (gen !== visor.gen) return;
+  p.el.innerHTML = ''; p.el.appendChild(cv);
+  if (!p.texto) p.texto = await p.page.getTextContent();
+  if (gen !== visor.gen) return;
+  if (visor.editando) capaEdicion(p, v);
+  else {
+    const tl = document.createElement('div'); tl.className = 'textLayer';
+    tl.style.setProperty('--scale-factor', esc);
+    p.el.appendChild(tl);
+    try {
+      if (pdfjsLib.TextLayer) new pdfjsLib.TextLayer({textContentSource: p.texto, container: tl, viewport: v}).render();
+      else pdfjsLib.renderTextLayer({textContentSource: p.texto, container: tl, viewport: v, textDivs: []});
+    } catch(e){}
+  }
+}
+function rehacerPaginas(mantenerPosicion = true){
+  const rel = vp$.scrollHeight ? vp$.scrollTop / vp$.scrollHeight : 0;
+  maquetarPaginas();
+  if (mantenerPosicion) vp$.scrollTop = rel * vp$.scrollHeight;
+}
+function zoomPdf(f){ visor.escala = Math.max(0.25, Math.min(4, visor.escala * f)); rehacerPaginas(); }
+$('vpMas').onclick = () => zoomPdf(1.2);
+$('vpMenos').onclick = () => zoomPdf(1 / 1.2);
+$('vpAjustar').onclick = () => { visor.escala = escalaAjustada(); rehacerPaginas(); };
+vp$.addEventListener('scroll', paginaPdfActual);
+vp$.addEventListener('wheel', e => { if (e.ctrlKey && visor.activo){ e.preventDefault(); zoomPdf(e.deltaY < 0 ? 1.1 : 1 / 1.1); } }, {passive: false});
+window.addEventListener('resize', () => { if (visor.activo){ clearTimeout(visor.tr); visor.tr = setTimeout(() => { visor.escala = escalaAjustada(); rehacerPaginas(); }, 250); } });
+function paginaPdfActual(){
+  if (!visor.activo) return;
+  const top = vp$.getBoundingClientRect().top + vp$.clientHeight / 3;
+  let n = 1;
+  for (const p of visor.paginas){ if (p.el && p.el.getBoundingClientRect().top <= top) n = p.n; }
+  $('cuentaPaginas').textContent = `Página ${n} de ${visor.paginas.length}`;
+}
+
+/* --- Edición del texto sobre el PDF --- */
+function familiaDe(p, fontName){
+  const fam = ((p.texto.styles[fontName] || {}).fontFamily || '') + ' ' + fontName;
+  return /mono|courier/i.test(fam) ? 'monospace' : /serif|times|roman|georgia|garamond|book/i.test(fam) && !/sans/i.test(fam) ? 'serif' : 'sans-serif';
+}
+function lineasPagina(p){
+  if (p.lineas) return p.lineas;
+  const items = [];
+  for (const it of p.texto.items){
+    if (!it.str || !it.str.trim()) continue;   // los espacios se deducen por la distancia entre palabras
+    const [a, b, c, d, e, f] = it.transform;
+    if (Math.abs(b) > 0.01 || Math.abs(c) > 0.01) continue;     // texto girado: no editable
+    const size = Math.abs(d) || Math.abs(a); if (!size) continue;
+    items.push({x: e, y: f, w: it.width, size, str: it.str, font: it.fontName});
+  }
+  items.sort((m, n) => (n.y - m.y) || (m.x - n.x));
+  const lineas = [];
+  for (const it of items){
+    const l = lineas[lineas.length - 1];
+    const gap = l ? it.x - (l.x + l.w) : 0;
+    if (l && Math.abs(l.y - it.y) < it.size * 0.3 && Math.abs(l.size - it.size) < 1.2 && gap > -it.size * 0.5 && gap < it.size * 0.7){
+      if (gap > it.size * 0.15 && !l.original.endsWith(' ') && !it.str.startsWith(' ')) l.original += ' ';
+      l.original += it.str; l.w = Math.max(l.w, it.x + it.w - l.x);
+      if (/bold|black|heavy|semibold/i.test(it.font)) l.negrita = true;
+    } else {
+      lineas.push({pag: p.n, x: it.x, y: it.y, w: it.w, size: it.size, original: it.str, font: it.font,
+        familia: familiaDe(p, it.font), negrita: /bold|black|heavy|semibold/i.test(it.font), cursiva: /italic|oblique/i.test(it.font)});
+    }
+  }
+  p.lineas = lineas.filter(l => l.original.trim()).map(l => ({...l, original: l.original.replace(/\s+$/, ''), texto: l.original.replace(/\s+$/, ''), editada: false}));
+  return p.lineas;
+}
+function crearLineaEl(p, v, l){
+  const [vx, vy] = v.convertToViewportPoint(l.x, l.y);
+  const fs = l.size * visor.escala;
+  const el = document.createElement('div');
+  el.className = 'vlinea' + (l.editada ? ' editada' : '') + (l.nueva ? ' nueva' : '');
+  el.contentEditable = 'true'; el.spellcheck = true; el.lang = 'es';
+  Object.assign(el.style, {
+    left: (vx - 1) + 'px', top: (vy - fs * 0.92) + 'px', fontSize: fs + 'px', fontFamily: l.familia,
+    fontWeight: l.negrita ? '700' : '400', fontStyle: l.cursiva ? 'italic' : 'normal',
+    minWidth: (l.nueva ? 40 : l.w * visor.escala + 2) + 'px', height: (fs * 1.15) + 'px'
+  });
+  el.textContent = l.texto;
+  el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === 'Escape'){ e.preventDefault(); el.blur(); } e.stopPropagation(); });
+  el.addEventListener('paste', e => { e.preventDefault(); document.execCommand('insertText', false, (e.clipboardData.getData('text/plain') || '').replace(/\s*\n\s*/g, ' ')); });
+  el.addEventListener('input', () => {
+    l.texto = el.textContent;
+    l.editada = l.nueva ? !!l.texto.trim() : l.texto !== l.original;
+    el.classList.toggle('editada', l.editada || !!l.nueva);
+    marcarCambioPdf();
+  });
+  el.addEventListener('blur', () => { if (l.nueva && !l.texto.trim()){ p.lineas.splice(p.lineas.indexOf(l), 1); el.remove(); } });
+  el.addEventListener('mousedown', e => e.stopPropagation());
+  return el;
+}
+function capaEdicion(p, v){
+  const capa = document.createElement('div'); capa.className = 'capaEdicion';
+  lineasPagina(p).forEach(l => capa.appendChild(crearLineaEl(p, v, l)));
+  capa.addEventListener('mousedown', e => {
+    if (!visor.anadiendo || e.target !== capa) return;
+    e.preventDefault();
+    const r = capa.getBoundingClientRect();
+    const size = 12;
+    const [x, y] = v.convertToPdfPoint(e.clientX - r.left, e.clientY - r.top + size * visor.escala * 0.8);
+    const l = {pag: p.n, x, y, w: 0, size, original: '', texto: '', familia: 'sans-serif', negrita: false, cursiva: false, nueva: true, editada: false};
+    lineasPagina(p).push(l);
+    const el = crearLineaEl(p, v, l); capa.appendChild(el);
+    el.focus();
+    setTimeout(() => { if (document.activeElement !== el) el.focus(); }, 0);
+    ponerAnadir(false);
+  });
+  p.el.appendChild(capa);
+}
+function marcarCambioPdf(){ visor.cambios = true; if (window.__mytextMarcarCambio) window.__mytextMarcarCambio(); }
+function ponerAnadir(v){ visor.anadiendo = v; document.body.classList.toggle('pdf-anadiendo', v); $('vpAnadir').classList.toggle('activo', v); }
+async function empezarEdicionPdf(){
+  visor.editando = true; document.body.classList.add('pdf-editando');
+  cargando(true, 'Preparando la edición…');
+  for (const p of visor.paginas) if (!p.texto) p.texto = await p.page.getTextContent();
+  cargando(false);
+  const total = visor.paginas.reduce((n, p) => n + lineasPagina(p).length, 0);
+  rehacerPaginas();
+  aviso(total ? 'Haz clic en un texto para cambiarlo' : 'Este PDF no tiene texto (parece escaneado). Puedes añadir texto nuevo con «＋ Añadir texto».', 4500);
+  cargarScript(CDN.pdflib).catch(() => {});
+}
+function terminarEdicionPdf(){
+  visor.editando = false; ponerAnadir(false); document.body.classList.remove('pdf-editando');
+  rehacerPaginas();
+  if (visor.cambios) aviso('Los cambios siguen pendientes de guardar. Pulsa «Editar texto» para seguir o Ctrl+S para guardar.', 4500);
+}
+$('vpEditar').onclick = empezarEdicionPdf;
+$('vpTerminar').onclick = terminarEdicionPdf;
+$('vpAnadir').onclick = () => ponerAnadir(!visor.anadiendo);
+
+/* --- Guardar el PDF con los cambios --- */
+async function exportarPdfEditado(){
+  if (!visor.activo) return;
+  try {
+    cargando(true, 'Guardando PDF…');
+    await cargarScript(CDN.pdflib);
+    const {PDFDocument, StandardFonts, rgb} = PDFLib;
+    const doc = await PDFDocument.load(visor.bytes.slice(), {ignoreEncryption: true});
+    const cache = {};
+    const fuente = async l => {
+      const base = l.familia === 'serif' ? 'TimesRoman' : l.familia === 'monospace' ? 'Courier' : 'Helvetica';
+      const suf = (l.negrita ? 'Bold' : '') + (l.cursiva ? (base === 'TimesRoman' ? 'Italic' : 'Oblique') : '');
+      const k = base + suf;
+      return cache[k] || (cache[k] = await doc.embedFont(StandardFonts[k] || StandardFonts[base]));
+    };
+    const limpiar = (t, f) => [...t].map(ch => { try { f.encodeText(ch); return ch; } catch(e){ return '?'; } }).join('');
+    let n = 0;
+    for (const p of visor.paginas){
+      if (!p.lineas) continue;
+      const pagina = doc.getPage(p.n - 1);
+      for (const l of p.lineas){
+        if (!l.editada) continue;
+        if (!l.nueva) pagina.drawRectangle({x: l.x - 0.6, y: l.y - l.size * 0.24, width: l.w + 1.2, height: l.size * 1.14, color: rgb(1, 1, 1)});
+        if (l.texto.trim()){ const f = await fuente(l); pagina.drawText(limpiar(l.texto, f), {x: l.x, y: l.y, size: l.size, font: f, color: rgb(0, 0, 0)}); }
+        n++;
+      }
+    }
+    const salida = await doc.save();
+    cargando(false);
+    const ok = await descargar(new Blob([salida], {type: 'application/pdf'}), nombreBase() + '.pdf');
+    if (ok !== false){ visor.cambios = false; visor.bytes = salida; }
+    return ok;
+  } catch(e){
+    cargando(false); console.error(e);
+    alert('No se pudo guardar el PDF.\n\n' + e.message);
+    return false;
+  }
+}
+acciones['guardar-pdf-editado'] = exportarPdfEditado;
+$('vpGuardar').onclick = () => window.__mytextGuardar ? window.__mytextGuardar() : exportarPdfEditado();
+$('vpGuardarComo').onclick = () => window.__mytextGuardarAtajo ? window.__mytextGuardarAtajo(true) : exportarPdfEditado();
+
+/* --- Convertir a documento, imprimir y cerrar --- */
+$('vpConvertir').onclick = async () => {
+  if (visor.cambios && !confirm('La conversión usa el PDF original: los cambios de texto sin guardar no se incluirán. ¿Continuar?')) return;
+  try {
+    cargando(true, 'Convirtiendo a documento…');
+    const html = await leerPdf(new File([visor.bytes], visor.nombre));
+    cerrarVisorPdf(true, true);
+    editor.innerHTML = html;
+    quitarNumerosEscritos(); normalizarSaltos(); limpiarTitulos();
+    actualizar(); $('zona').scrollTop = 0;
+    aviso('Convertido. Al guardar se creará un documento de Word (.docx); el PDF original no se modifica.', 5000);
+  } catch(e){ alert('No se pudo convertir.\n\n' + e.message); }
+  finally { cargando(false); }
+};
+async function imprimirPdf(){
+  cargando(true, 'Preparando la impresión…');
+  for (const p of visor.paginas) await renderPagina(p);
+  cargando(false);
+  window.print();
+}
+$('vpImprimir').onclick = imprimirPdf;
+function cerrarVisorPdf(sinPreguntar, conservarRuta){
+  if (!sinPreguntar && visor.cambios && !confirm('Hay cambios sin guardar en el PDF. ¿Cerrarlo sin guardar?')) return false;
+  if (visor.obs) visor.obs.disconnect();
+  try { visor.pdf && visor.pdf.destroy(); } catch(e){}
+  Object.assign(visor, {activo:false, pdf:null, paginas:[], editando:false, cambios:false});
+  vp$.innerHTML = '';
+  document.body.classList.remove('modo-pdf', 'pdf-editando', 'pdf-anadiendo');
+  ponerPaginaCss();
+  if (!conservarRuta){
+    nombreDoc.value = 'Documento sin título';
+    if (window.__mytextReiniciar) window.__mytextReiniciar();
+  }
+  paginar();
+  return true;
+}
+$('vpCerrar').onclick = () => cerrarVisorPdf(false);
 
 /* ================= programa de escritorio (MyText) ================= */
 if (window.mytext) (function(){
@@ -2070,7 +2557,7 @@ if (window.mytext) (function(){
     const ok = !!r;
     if (ok){
       const ext = extDe(r);
-      if (ESCRIBIBLES[ext]) fijarRuta(r);   // a partir de ahora "Guardar" escribe en ese archivo
+      if (ESCRIBIBLES[ext] || (ext === 'pdf' && visor.activo)) fijarRuta(r);   // a partir de ahora "Guardar" escribe en ese archivo
       ponerModificado(false);
       aviso('Guardado: ' + nombreDe(r));
     }
@@ -2082,12 +2569,16 @@ if (window.mytext) (function(){
       destinoDirecto = directo || null;
       esperando = res;
       setTimeout(() => { if (esperando === res){ esperando = null; destinoDirecto = null; res(false); } }, 120000);
-      Promise.resolve(acciones[accion]()).catch(() => { if (esperando === res){ esperando = null; res(false); } });
+      Promise.resolve(acciones[accion]()).then(r => { if (r === false && esperando === res){ esperando = null; destinoDirecto = null; res(false); } }).catch(() => { if (esperando === res){ esperando = null; res(false); } });
     });
   }
   const tieneFormato = () => !!editor.querySelector('b,strong,i,em,u,s,span[style],font,img,table,h1,h2,h3,ul,ol,a,blockquote');
   async function guardar(){
     const ext = ruta ? extDe(ruta) : null;
+    if (visor.activo){
+      if (!visor.cambios){ aviso('No hay cambios que guardar en el PDF'); return true; }
+      return guardarConFormato('guardar-pdf-editado', ext === 'pdf' ? ruta : null);
+    }
     if (ruta && ESCRIBIBLES[ext]){
       if (ext === 'txt' && tieneFormato() && confirm('Un archivo .txt no guarda negritas, colores, títulos ni imágenes.\n\n¿Guardar como documento de Word (.docx) para no perder el formato?\n\n(Cancelar = guardar igualmente como .txt)'))
         return guardarConFormato('guardar-docx');
@@ -2095,7 +2586,9 @@ if (window.mytext) (function(){
     }
     return guardarConFormato('guardar-docx');   // documento nuevo, o venía de PDF/RTF/ODT
   }
-  function guardarComo(){ return guardarConFormato('guardar-docx'); }
+  function guardarComo(){ return guardarConFormato(visor.activo ? 'guardar-pdf-editado' : 'guardar-docx'); }
+  window.__mytextMarcarCambio = () => { editadoSesion = true; ponerModificado(true); };
+  window.__mytextReiniciar = () => { ruta = null; ponerModificado(false); };
   window.__mytextGuardar = guardar;
   window.__mytextGuardarAtajo = shift => shift ? guardarComo() : guardar();
 
@@ -2113,6 +2606,7 @@ if (window.mytext) (function(){
   acciones.abrir = async () => { if (preguntaPrograma || await descartarCambios()) M.abrir(); };
   acciones.nuevo = async () => {
     if (!(await descartarCambios())) return;
+    if (visor.activo) cerrarVisorPdf(true, true);
     silencio++; editor.innerHTML = ''; nombreDoc.value = 'Documento sin título'; actualizar(); silencio--;
     ruta = null; ponerModificado(false); editor.focus();
   };

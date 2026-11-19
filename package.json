@@ -1,7 +1,7 @@
 {
   "name": "mytext",
   "productName": "MyText",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Editor de textos MyText",
   "author": "YipikayeiGit",
   "license": "UNLICENSED",
@@ -18,7 +18,8 @@
     "electron-updater": "^6.3.9",
     "jszip": "3.10.1",
     "mammoth": "1.8.0",
-    "pdfjs-dist": "3.11.174"
+    "pdfjs-dist": "3.11.174",
+    "pdf-lib": "1.17.1"
   },
   "devDependencies": {
     "electron": "^33.2.1",
@@ -62,6 +63,15 @@
         "ext": "docx",
         "name": "MyText.docx",
         "description": "Documento de Word",
+        "role": "Editor"
+      },
+      {
+        "ext": [
+          "doc",
+          "dot"
+        ],
+        "name": "MyText.doc",
+        "description": "Documento de Word 97-2003",
         "role": "Editor"
       },
       {

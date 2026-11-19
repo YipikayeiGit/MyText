@@ -11,7 +11,7 @@ try { autoUpdater = require('electron-updater').autoUpdater; } catch (e) { /* si
 const REPO = 'YipikayeiGit/MyText';
 const RAW = `https://raw.githubusercontent.com/${REPO}/main/editor/`;
 
-const EXT_ABRIBLES = /\.(txt|md|markdown|log|docx|pdf|html?|rtf|odt|csv|json|xml)$/i;
+const EXT_ABRIBLES = /\.[a-z0-9]{1,8}$/i;   // cualquier archivo con extensión: el editor decide cómo leerlo
 const FILTROS = {
   docx: { name: 'Documento de Word', extensions: ['docx'] },
   pdf: { name: 'PDF', extensions: ['pdf'] },
@@ -30,7 +30,7 @@ let ultimaCarpeta = null;
 function archivoDeArgs(argv) {
   for (const a of argv.slice(1)) {
     if (a && !a.startsWith('-') && EXT_ABRIBLES.test(a)) {
-      try { if (fs.existsSync(a)) return path.resolve(a); } catch (e) {}
+      try { if (fs.existsSync(a) && fs.statSync(a).isFile()) return path.resolve(a); } catch (e) {}
     }
   }
   return null;
@@ -187,7 +187,8 @@ ipcMain.on('info', e => {
     pdfjs: 'pdfjs-dist/build/pdf.min.js',
     pdfjsWorker: 'pdfjs-dist/build/pdf.worker.min.js',
     mammoth: 'mammoth/mammoth.browser.min.js',
-    jszip: 'jszip/dist/jszip.min.js'
+    jszip: 'jszip/dist/jszip.min.js',
+    pdflib: 'pdf-lib/dist/pdf-lib.min.js'
   };
   // Solo se usan las librerías que estén dentro del programa; si falta alguna, el editor la descarga de internet
   const vendor = {};
@@ -220,7 +221,7 @@ ipcMain.handle('abrir-dialogo', async () => {
   const r = await dialog.showOpenDialog(win, {
     title: 'Abrir', defaultPath: ultimaCarpeta || app.getPath('documents'), properties: ['openFile'],
     filters: [
-      { name: 'Documentos', extensions: ['docx', 'pdf', 'txt', 'md', 'html', 'htm', 'rtf', 'odt'] },
+      { name: 'Documentos', extensions: ['docx', 'doc', 'pdf', 'txt', 'md', 'html', 'htm', 'rtf', 'odt'] },
       { name: 'Todos los archivos', extensions: ['*'] }
     ]
   });

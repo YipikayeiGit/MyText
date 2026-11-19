@@ -1,5 +1,5 @@
 {
-  "version": "1.0.3",
+  "version": "1.0.4",
   "minApp": "1.0.0",
-  "notas": "Nunca reaparece un documento anterior al abrir otro archivo"
+  "notas": "Visor de PDF con edición de texto; abre .doc antiguos"
 }
