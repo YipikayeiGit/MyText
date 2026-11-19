@@ -1,5 +1,5 @@
 {
-  "version": "1.0.0",
+  "version": "1.0.1",
   "minApp": "1.0.0",
-  "notas": "Primera versión"
+  "notas": "Interlineado y espacio entre párrafos"
 }

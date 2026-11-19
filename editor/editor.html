@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
 <title>MyText</title>
-<meta name="mytext-version" content="1.0.0">
+<meta name="mytext-version" content="1.0.1">
 <style>
   :root{
     --bg:#e6e8ec; --bar:#ffffff; --line:#d5d9e0; --ink:#1f2430; --muted:#6b7280;
@@ -312,6 +312,22 @@
     <option value="6">24</option>
     <option value="7">36</option>
   </select>
+  <select id="interlineado" title="Interlineado y espacio entre párrafos">
+    <option value="" hidden>↕ 1,5</option>
+    <optgroup label="Interlineado">
+      <option value="1">1,0</option>
+      <option value="1.15">1,15</option>
+      <option value="1.5">1,5</option>
+      <option value="2">2,0</option>
+      <option value="2.5">2,5</option>
+      <option value="3">3,0</option>
+    </optgroup>
+    <optgroup label="Espacio después del párrafo">
+      <option value="esp:0">Sin espacio</option>
+      <option value="esp:">Normal</option>
+      <option value="esp:1.5em">Amplio</option>
+    </optgroup>
+  </select>
   <span class="sep"></span>
 
   <button data-cmd="bold" title="Negrita (Ctrl+B)"><b>N</b></button>
@@ -544,7 +560,10 @@ function limpiarTitulos(){
     lista.remove();
   });
   editor.querySelectorAll('h1,h2,h3').forEach(h => {
+    const lh = h.style.lineHeight, mb = h.style.marginBottom;
     h.removeAttribute('style'); h.removeAttribute('align');
+    if (lh) h.style.lineHeight = lh;
+    if (mb) h.style.marginBottom = mb;
     h.querySelectorAll('*').forEach(n => {
       if (FORMATO_INLINE.has(n.tagName) && !n.classList.contains('encontrado')) n.replaceWith(...n.childNodes);
       else if (n.tagName !== 'MARK') n.removeAttribute('style');
@@ -614,7 +633,38 @@ $('tamano').addEventListener('change', e => { restaurarSeleccion(); cmd('fontSiz
 $('colorTexto').addEventListener('input', e => { $('barritaTexto').style.background = e.target.value; restaurarSeleccion(); cmd('foreColor', e.target.value); });
 $('colorFondo').addEventListener('input', e => { $('barritaFondo').style.background = e.target.value; restaurarSeleccion(); cmd('hiliteColor', e.target.value); });
 
+/* Interlineado: se aplica a los párrafos seleccionados */
+const SELECTOR_PARRAFO = 'p,h1,h2,h3,h4,h5,h6,li,blockquote,pre,td,th,div:not(#editor):not(.salto-pagina)';
+function parrafosSeleccion(){
+  const s = getSelection(); if (!s.rangeCount || !editor.contains(s.anchorNode)) return [];
+  const r = s.getRangeAt(0), lista = [];
+  const propio = n => { const el = n.nodeType === 3 ? n.parentElement : n; const b = el && el.closest(SELECTOR_PARRAFO); return b && editor.contains(b) ? b : null; };
+  [propio(r.startContainer), propio(r.endContainer)].forEach(b => b && lista.push(b));
+  editor.querySelectorAll(SELECTOR_PARRAFO).forEach(b => { if (r.intersectsNode(b) && !b.querySelector(SELECTOR_PARRAFO)) lista.push(b); });
+  return [...new Set(lista)];
+}
+function aplicarInterlineado(v){
+  restaurarSeleccion();
+  let bloques = parrafosSeleccion();
+  if (!bloques.length){ document.execCommand('formatBlock', false, '<p>'); bloques = parrafosSeleccion(); }
+  bloques.forEach(b => {
+    if (v.startsWith('esp:')) b.style.marginBottom = v.slice(4);
+    else b.style.lineHeight = v;
+    if (!b.getAttribute('style')) b.removeAttribute('style');
+  });
+  actualizar(); estadoBotones();
+  aviso(v.startsWith('esp:') ? 'Espacio entre párrafos cambiado' : 'Interlineado: ' + v.replace('.', ','));
+}
+$('interlineado').addEventListener('change', e => { const v = e.target.value; e.target.value = ''; if (v) aplicarInterlineado(v); });
+function mostrarInterlineado(){
+  const b = parrafosSeleccion()[0];
+  const lh = b ? (b.style.lineHeight || (b.closest('[style*="line-height"]') || {style:{}}).style.lineHeight) : '';
+  $('interlineado').querySelector('option[value=""]').textContent = '↕ ' + (lh ? String(+lh || lh).replace('.', ',') : '1,5');
+  $('interlineado').value = '';
+}
+
 function estadoBotones(){
+  try { mostrarInterlineado(); } catch(e){}
   ['bold','italic','underline','strikeThrough','superscript','subscript','justifyLeft','justifyCenter','justifyRight','justifyFull','insertUnorderedList','insertOrderedList']
     .forEach(c => {
       let on = false; try { on = document.queryCommandState(c); } catch(e){}
@@ -1349,6 +1399,12 @@ class EscritorDocx {
     if (ctx.estilo) p += `<w:pStyle w:val="${ctx.estilo}"/>`;
     if (ctx.num) p += `<w:numPr><w:ilvl w:val="${Math.min(ctx.num.nivel, 8)}"/><w:numId w:val="${ctx.num.id}"/></w:numPr>`;
     if (ctx.f && ctx.f.pre) p += '<w:shd w:val="clear" w:color="auto" w:fill="F2F2F2"/><w:spacing w:after="0" w:line="240" w:lineRule="auto"/>';
+    else if (ctx.lh || ctx.despues !== undefined){
+      let at = '';
+      if (ctx.despues !== undefined) at += ` w:after="${ctx.despues}"`;
+      if (ctx.lh) at += ` w:line="${Math.round(240 * ctx.lh)}" w:lineRule="auto"`;
+      p += `<w:spacing${at}/>`;
+    }
     if (ctx.ind && !ctx.num) p += `<w:ind w:left="${Math.round(ctx.ind)}"/>`;
     if (ctx.align) p += `<w:jc w:val="${ctx.align}"/>`;
     return `<w:p>${p ? '<w:pPr>' + p + '</w:pPr>' : ''}${runs}</w:p>`;
@@ -1376,6 +1432,12 @@ class EscritorDocx {
     const al = (st.textAlign || el.getAttribute('align') || '').toLowerCase();
     if (al) c2.align = {left:'left', start:'left', center:'center', right:'right', end:'right', justify:'both'}[al] || c2.align;
     if (t === 'center') c2.align = 'center';
+    if (st.lineHeight && !isNaN(+st.lineHeight)) c2.lh = +st.lineHeight;
+    if (st.marginBottom !== ''){
+      const mb = st.marginBottom;
+      const px = /em$/.test(mb) ? parseFloat(mb) * 16 : parseFloat(mb);
+      if (!isNaN(px)) c2.despues = Math.round(px * 15);
+    }
     const ml = parseFloat(st.marginLeft) || parseFloat(st.paddingLeft) || 0;
     if (ml && /px/.test(st.marginLeft || st.paddingLeft)) c2.ind = (c2.ind || 0) + ml * 15;
     let out = '';
