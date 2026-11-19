@@ -1,0 +1,30 @@
+name: Publicar programa
+
+# Se ejecuta cuando cambia la versión del programa (package.json) o a mano desde la pestaña Actions.
+# Los cambios solo del editor (carpeta editor/) no necesitan esto: el programa los descarga directamente.
+on:
+  push:
+    branches: [main]
+    paths: ['package.json', 'main.js', 'preload.js']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Instalar dependencias
+        run: npm install
+
+      - name: Construir y publicar el instalador
+        run: npx electron-builder --win --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

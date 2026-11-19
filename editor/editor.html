@@ -1,0 +1,2158 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
+<title>MyText</title>
+<meta name="mytext-version" content="1.0.0">
+<style>
+  :root{
+    --bg:#e6e8ec; --bar:#ffffff; --line:#d5d9e0; --ink:#1f2430; --muted:#6b7280;
+    --accent:#2f6fde; --hover:#eef2f8; --page:#ffffff; --activo:#dfe8fb;
+  }
+  body.oscuro{
+    --bg:#1b1e24; --bar:#262a32; --line:#3a3f4a; --ink:#e6e8ec; --muted:#9aa1ad;
+    --hover:#30353f; --page:#2b2f37; --activo:#34405a;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);display:flex;flex-direction:column;overflow:hidden}
+
+  /* Barra de menú */
+  .menu{display:flex;align-items:center;gap:4px;padding:6px 10px;background:var(--bar);border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .titulo{font-weight:600;margin-right:10px;display:flex;align-items:center;gap:8px}
+  .titulo input{border:1px solid transparent;background:transparent;color:var(--ink);font:inherit;font-weight:600;padding:3px 6px;border-radius:4px;width:220px}
+  .titulo input:hover,.titulo input:focus{border-color:var(--line);outline:none}
+  .desplegable{position:relative}
+  .desplegable>button{background:none;border:none;color:var(--ink);font:inherit;padding:5px 10px;border-radius:4px;cursor:pointer}
+  .desplegable>button:hover,.desplegable.abierto>button{background:var(--hover)}
+  .opciones{display:none;position:absolute;top:100%;left:0;min-width:250px;background:var(--bar);border:1px solid var(--line);border-radius:6px;box-shadow:0 6px 20px rgba(0,0,0,.15);padding:4px;z-index:50}
+  .desplegable.abierto .opciones{display:block}
+  .opciones button{display:flex;justify-content:space-between;gap:14px;width:100%;text-align:left;background:none;border:none;color:var(--ink);font:inherit;font-size:14px;padding:7px 10px;border-radius:4px;cursor:pointer}
+  .opciones button:hover{background:var(--hover)}
+  .opciones kbd{color:var(--muted);font-family:inherit;font-size:12px}
+  .opciones hr{border:none;border-top:1px solid var(--line);margin:4px 0}
+
+  /* Barra de herramientas */
+  .herramientas{display:flex;align-items:center;gap:2px;padding:5px 10px;background:var(--bar);border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .herramientas button,.herramientas select,.herramientas label.color{height:30px;min-width:30px;border:1px solid transparent;background:none;color:var(--ink);border-radius:4px;cursor:pointer;font:inherit;font-size:14px;display:inline-flex;align-items:center;justify-content:center;padding:0 6px}
+  .herramientas button:hover,.herramientas label.color:hover{background:var(--hover)}
+  .herramientas button.activo{background:var(--activo);border-color:var(--line)}
+  .herramientas select{border-color:var(--line);background:var(--page);padding:0 4px}
+  .sep{width:1px;height:22px;background:var(--line);margin:0 5px}
+  label.color{position:relative;flex-direction:column;gap:0}
+  label.color input{position:absolute;opacity:0;width:0;height:0}
+  label.color .barrita{width:16px;height:3px;border-radius:1px;margin-top:-2px}
+
+  /* Cuerpo: índice + documento */
+  .cuerpo{flex:1;display:flex;min-height:0}
+  #indice{width:250px;flex-shrink:0;background:var(--bar);border-right:1px solid var(--line);overflow:auto;padding:12px 8px}
+  #indice.oculto{display:none}
+  #indice h4{margin:2px 8px 10px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);display:flex;justify-content:space-between;align-items:center}
+  #indice h4 button{background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px}
+  #indice a{display:block;padding:5px 8px;border-radius:4px;color:var(--ink);text-decoration:none;font-size:13.5px;line-height:1.3;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #indice a:hover{background:var(--hover)}
+  #indice a.actual{background:var(--activo);font-weight:600}
+  #indice a.n1{font-weight:600}
+  #indice a.n2{padding-left:20px}
+  #indice a.n3{padding-left:34px;color:var(--muted)}
+  #indice .vacio{color:var(--muted);font-size:13px;padding:4px 8px;line-height:1.45}
+
+  .zona{flex:1;overflow:auto;padding:30px 20px 60px}
+  .envoltorio{margin:0 auto}
+  .documento{position:relative;display:flow-root;width:210mm;transform-origin:top left}
+  .pagina{position:absolute;left:0;width:100%;background:var(--page);box-shadow:0 1px 4px rgba(0,0,0,.18);pointer-events:none}
+  .pagina .num{position:absolute;bottom:10mm;left:0;right:0;text-align:center;font-size:9pt;color:var(--muted)}
+
+  #editor{position:relative;z-index:1;outline:none;margin:25mm 22mm 0;min-height:247mm;font-family:Calibri,Carlito,"Segoe UI",sans-serif;font-size:12pt;line-height:1.5;word-wrap:break-word;color:var(--ink)}
+  #editor:empty:before{content:"Empieza a escribir o abre un archivo…";color:var(--muted)}
+  #editor p{margin:0 0 .6em}
+  #editor h1,#editor h2,#editor h3{margin:.6em 0 .4em;line-height:1.25}
+  #editor h1::before,#editor h2::before,#editor h3::before{user-select:none}
+  #indice a .nt{color:var(--muted);margin-right:6px;font-weight:600}
+  #editor table{border-collapse:collapse;width:100%;margin:.5em 0}
+  #editor td,#editor th{border:1px solid #999;padding:5px 8px;min-width:40px;vertical-align:top}
+  #editor img{max-width:100%;cursor:pointer}
+  #editor img.arrastrando{opacity:.45;pointer-events:none}
+  #marcoImg{position:absolute;z-index:20;border:1.5px solid var(--accent);pointer-events:none;display:none}
+  #marcoImg.visible{display:block}
+  #marcoImg .asa{position:absolute;width:11px;height:11px;background:#fff;border:1.5px solid var(--accent);border-radius:2px;pointer-events:auto}
+  #marcoImg .asa[data-a=nw]{left:-6px;top:-6px;cursor:nwse-resize}
+  #marcoImg .asa[data-a=n]{left:calc(50% - 6px);top:-6px;cursor:ns-resize}
+  #marcoImg .asa[data-a=ne]{right:-6px;top:-6px;cursor:nesw-resize}
+  #marcoImg .asa[data-a=e]{right:-6px;top:calc(50% - 6px);cursor:ew-resize}
+  #marcoImg .asa[data-a=se]{right:-6px;bottom:-6px;cursor:nwse-resize}
+  #marcoImg .asa[data-a=s]{left:calc(50% - 6px);bottom:-6px;cursor:ns-resize}
+  #marcoImg .asa[data-a=sw]{left:-6px;bottom:-6px;cursor:nesw-resize}
+  #marcoImg .asa[data-a=w]{left:-6px;top:calc(50% - 6px);cursor:ew-resize}
+  #marcoImg .medida{position:absolute;right:0;bottom:-24px;background:var(--accent);color:#fff;font:11px system-ui,sans-serif;padding:2px 6px;border-radius:3px;white-space:nowrap}
+  #barraImg{position:absolute;z-index:21;display:none;gap:3px;align-items:center;background:var(--bar);color:var(--ink);border:1px solid var(--line);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.18);padding:4px 6px;white-space:nowrap;font:13px system-ui,sans-serif}
+  #barraImg.visible{display:flex}
+  #barraImg button{height:28px;min-width:28px;border:1px solid transparent;background:none;color:var(--ink);border-radius:4px;cursor:pointer;font:inherit;padding:0 6px}
+  #barraImg button:hover{background:var(--hover)}
+  #barraImg button.activo{background:var(--activo);border-color:var(--line)}
+  #barraImg select,#barraImg input{height:28px;border:1px solid var(--line);border-radius:4px;background:var(--page);color:var(--ink);font:inherit}
+  #barraImg input{width:56px;padding:0 4px}
+  #barraImg .sep{width:1px;height:20px;background:var(--line);margin:0 3px}
+  #cursorSoltar{position:fixed;width:2px;background:var(--accent);z-index:99;pointer-events:none;display:none}
+  #recorte{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:95;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px}
+  #recorte.visible{display:flex}
+  #recorteZona{position:relative;user-select:none;line-height:0}
+  #recorteZona img{display:block;max-width:85vw;max-height:72vh;pointer-events:none}
+  #recorteCaja{position:absolute;border:2px solid #fff;box-shadow:0 0 0 9999px rgba(0,0,0,.55);cursor:move;outline:1px dashed rgba(0,0,0,.6);outline-offset:-3px}
+  #recorteZona{overflow:hidden}
+  #recorteCaja .asa{position:absolute;width:14px;height:14px;background:#fff;border-radius:2px}
+  #recorteCaja .asa[data-a=nw]{left:-8px;top:-8px;cursor:nwse-resize}
+  #recorteCaja .asa[data-a=n]{left:calc(50% - 7px);top:-8px;cursor:ns-resize}
+  #recorteCaja .asa[data-a=ne]{right:-8px;top:-8px;cursor:nesw-resize}
+  #recorteCaja .asa[data-a=e]{right:-8px;top:calc(50% - 7px);cursor:ew-resize}
+  #recorteCaja .asa[data-a=se]{right:-8px;bottom:-8px;cursor:nwse-resize}
+  #recorteCaja .asa[data-a=s]{left:calc(50% - 7px);bottom:-8px;cursor:ns-resize}
+  #recorteCaja .asa[data-a=sw]{left:-8px;bottom:-8px;cursor:nesw-resize}
+  #recorteCaja .asa[data-a=w]{left:-8px;top:calc(50% - 7px);cursor:ew-resize}
+  #recorte .botones{display:flex;gap:8px}
+  #recorte .botones button{padding:8px 16px;border-radius:6px;border:none;cursor:pointer;font:14px system-ui,sans-serif;background:#fff;color:#222}
+  #recorte .botones button.prim{background:var(--accent);color:#fff}
+  #recorte .ayuda{color:#ddd;font:13px system-ui,sans-serif}
+  #editor a{color:var(--accent)}
+  #editor blockquote{margin:0 0 .6em 40px}
+  #editor pre{font-family:"Courier New",monospace;font-size:10.5pt;white-space:pre-wrap;background:rgba(127,127,127,.08);padding:8px;border-radius:4px}
+  #editor .salto-pagina{display:block;height:16px;margin:4px 0;border-top:1px dashed var(--line);user-select:none;cursor:default}
+  #editor .salto-pagina::before{content:"Salto de página";display:block;text-align:center;font-size:8pt;color:var(--muted);font-family:system-ui,sans-serif;line-height:16px}
+  @media screen{ #editor .empuje{margin-top:var(--empuje)!important} }
+  body.brocha #editor{cursor:copy}
+
+  /* Barra de estado */
+  .estado{display:flex;gap:18px;align-items:center;padding:4px 14px;background:var(--bar);border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
+  .estado .der{margin-left:auto;display:flex;align-items:center;gap:8px}
+  .estado input[type=range]{width:110px}
+
+  /* Buscar y reemplazar */
+  #buscador{display:none;position:fixed;top:110px;right:24px;background:var(--bar);border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.18);padding:12px;z-index:60;width:300px}
+  #buscador.visible{display:block}
+  #buscador input[type=text]{width:100%;padding:6px 8px;margin-bottom:6px;border:1px solid var(--line);border-radius:4px;background:var(--page);color:var(--ink);font:inherit}
+  #buscador .fila{display:flex;gap:6px;flex-wrap:wrap}
+  #buscador button{flex:1;padding:6px;border:1px solid var(--line);background:var(--page);color:var(--ink);border-radius:4px;cursor:pointer;font:inherit;font-size:13px}
+  #buscador button:hover{background:var(--hover)}
+  #buscador .info{font-size:12px;color:var(--muted);margin-top:6px}
+  mark.encontrado{background:#ffe26a;color:#000}
+  mark.encontrado.actual{background:#ff9d2e}
+
+  #aviso{position:fixed;bottom:40px;left:50%;transform:translateX(-50%);background:#222;color:#fff;padding:10px 18px;border-radius:6px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .25s;z-index:100;max-width:90%;text-align:center}
+  #aviso.visible{opacity:1}
+  #cargando{display:none;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:90;align-items:center;justify-content:center;color:#fff;font-size:16px}
+  #cargando.visible{display:flex}
+
+
+  /* ===== Vista móvil (texto a todo el ancho, sin hojas) ===== */
+  body.vista-movil .zona{padding:0;background:var(--page)}
+  body.vista-movil #editor img[data-ajuste=izq],body.vista-movil #editor img[data-ajuste=der]{max-width:50%;height:auto!important}
+  @media (pointer:coarse){ .opciones kbd{display:none} }
+  body.vista-movil .envoltorio{width:auto!important;height:auto!important}
+  body.vista-movil .documento{width:auto;height:auto!important;transform:none!important}
+  body.vista-movil .pagina{display:none}
+  body.vista-movil #editor{margin:0;padding:20px 18px 45vh;min-height:100%;background:var(--page)}
+  body.vista-movil #editor blockquote{margin-left:20px}
+  #fondoIndice{display:none}
+  #editor img{-webkit-touch-callout:none}
+  #editor img.sel{touch-action:none}
+  #marcoImg .asa,#recorteCaja,#recorteCaja .asa{touch-action:none}
+  @media (pointer:coarse){
+    #marcoImg .asa{transform:scale(1.8)}
+    #recorteCaja .asa{transform:scale(1.5)}
+    .herramientas button,.herramientas label.color{min-width:38px;height:38px}
+    .opciones button{padding:11px 12px;font-size:15px}
+  }
+  @media (max-width: 820px){
+    html,body{height:100%;height:100dvh}
+    .menu{padding:4px 6px;gap:0}
+    .titulo{flex-basis:100%;margin:0 0 2px}
+    .titulo input{flex:1;width:auto;min-width:0}
+    .desplegable>button{padding:7px 10px;font-size:15px}
+    .opciones{position:fixed;left:8px;right:8px;min-width:0;max-height:70vh;overflow:auto}
+    .herramientas{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding:4px 6px}
+    .herramientas::-webkit-scrollbar{display:none}
+    .herramientas > *{flex-shrink:0}
+    .herramientas select{font-size:16px;height:36px}
+    #indice{position:fixed;top:0;bottom:0;left:0;z-index:75;width:82vw;max-width:310px;box-shadow:4px 0 20px rgba(0,0,0,.25);transform:translateX(-105%);transition:transform .2s;display:block!important}
+    #indice.movil-abierto{transform:none}
+    #fondoIndice.visible{display:block;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:74}
+    #indice a{padding:10px 8px;font-size:15px}
+    .estado{gap:12px;padding:5px 10px}
+    #cuentaCaracteres,#estadoGuardado,.estado .der{display:none!important}
+    #buscador{top:8px;left:8px;right:8px;width:auto}
+    #buscador input[type=text]{font-size:16px}
+    #barraImg{flex-wrap:wrap;white-space:normal;max-width:calc(100% - 8px);row-gap:4px}
+    #barraImg select,#barraImg input{font-size:16px}
+    #recorteZona img{max-width:94vw;max-height:62vh}
+    #recorte .botones{flex-wrap:wrap;justify-content:center}
+    #aviso{bottom:60px}
+  }
+
+  /* ===== Programa de escritorio ===== */
+  #bannerAct{display:none;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 14px;background:#2f6fde;color:#fff;font-size:14px}
+  #bannerAct.visible{display:flex}
+  #bannerAct button{border:none;border-radius:5px;padding:5px 12px;cursor:pointer;font:inherit}
+  #bannerAct .prim{background:#fff;color:#2f6fde;font-weight:600}
+  #bannerAct .sec{background:rgba(255,255,255,.18);color:#fff}
+  #bannerAct .cerrar{margin-left:auto;background:none;color:#fff;font-size:16px}
+  #listaRecientes .titulo-rec{font-size:12px;color:var(--muted);padding:6px 10px 2px}
+  #listaRecientes button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:330px}
+  @page{size:A4;margin:25mm 22mm}
+  @media print{
+    .menu,.herramientas,.estado,#buscador,#aviso,#indice,.pagina{display:none!important}
+    html,body{height:auto;overflow:visible;background:#fff}
+    .cuerpo,.zona{display:block;padding:0;overflow:visible}
+    .envoltorio{width:auto!important;height:auto!important}
+    .documento{width:auto;transform:none!important}
+    #editor{margin:0;min-height:0;color:#000}
+    #editor .salto-pagina{height:0;margin:0;border:none;break-after:page;page-break-after:always}
+    #editor .salto-pagina::before{display:none}
+  }
+</style>
+</head>
+<body>
+
+<div class="menu">
+  <div class="titulo">📝 <input id="nombreDoc" value="Documento sin título" title="Nombre del documento"></div>
+
+  <div class="desplegable">
+    <button>Archivo</button>
+    <div class="opciones">
+      <button data-accion="nuevo">Nuevo <kbd>Ctrl+Alt+N</kbd></button>
+      <button data-accion="abrir">Abrir… <kbd>Ctrl+O</kbd></button>
+      <hr>
+      <button data-accion="guardar-docx">Guardar como Word (.docx) <kbd>Ctrl+S</kbd></button>
+      <button data-accion="guardar-pdf">Guardar como PDF</button>
+      <button data-accion="guardar-html">Guardar como HTML</button>
+      <button data-accion="guardar-txt">Guardar como texto (.txt)</button>
+      <button data-accion="guardar-md">Guardar como Markdown (.md)</button>
+      <hr>
+      <button data-accion="imprimir">Imprimir <kbd>Ctrl+P</kbd></button>
+    </div>
+  </div>
+
+  <div class="desplegable">
+    <button>Editar</button>
+    <div class="opciones">
+      <button data-cmd="undo">Deshacer <kbd>Ctrl+Z</kbd></button>
+      <button data-cmd="redo">Rehacer <kbd>Ctrl+Y</kbd></button>
+      <hr>
+      <button data-accion="copiar">Copiar <kbd>Ctrl+C</kbd></button>
+      <button data-accion="cortar">Cortar <kbd>Ctrl+X</kbd></button>
+      <button data-accion="pegar">Pegar <kbd>Ctrl+V</kbd></button>
+      <hr>
+      <button data-accion="brocha">Copiar formato <kbd>Ctrl+Mayús+C</kbd></button>
+      <button data-cmd="removeFormat">Quitar formato</button>
+      <hr>
+      <button data-cmd="selectAll">Seleccionar todo <kbd>Ctrl+A</kbd></button>
+      <button data-accion="buscar">Buscar y reemplazar <kbd>Ctrl+F</kbd></button>
+    </div>
+  </div>
+
+  <div class="desplegable">
+    <button>Insertar</button>
+    <div class="opciones">
+      <button data-accion="salto">Salto de página <kbd>Ctrl+Intro</kbd></button>
+      <hr>
+      <button data-accion="enlace">Enlace <kbd>Ctrl+K</kbd></button>
+      <button data-accion="imagen">Imagen…</button>
+      <button data-accion="tabla">Tabla…</button>
+      <button data-cmd="insertHorizontalRule">Línea horizontal</button>
+      <button data-accion="fecha">Fecha y hora</button>
+    </div>
+  </div>
+
+  <div class="desplegable">
+    <button>Ver</button>
+    <div class="opciones">
+      <button data-accion="vista"><span id="txtVista">Vista: páginas</span></button>
+      <button data-accion="indice">Mostrar / ocultar índice</button>
+      <button data-accion="numerar"><span id="txtNumerar">Numerar títulos: sí</span></button>
+      <button data-accion="reset-titulos">Restablecer formato de títulos</button>
+      <hr>
+      <button data-accion="corrector"><span id="txtCorrector">Corrector ortográfico: activado</span></button>
+      <button data-accion="oscuro">Modo oscuro / claro</button>
+      <button data-accion="zoom-100">Zoom 100%</button>
+    </div>
+  </div>
+</div>
+
+<div class="herramientas">
+  <button data-accion="indice" title="Mostrar / ocultar índice">☰</button>
+  <span class="sep"></span>
+  <button data-cmd="undo" title="Deshacer (Ctrl+Z)">↶</button>
+  <button data-cmd="redo" title="Rehacer (Ctrl+Y)">↷</button>
+  <button id="btnBrocha" data-accion="brocha" title="Copiar formato: clic = una vez, doble clic = varias veces (Esc para terminar)">🖌</button>
+  <span class="sep"></span>
+
+  <select id="bloque" title="Estilo de párrafo">
+    <option value="p">Normal</option>
+    <option value="h1">Título 1</option>
+    <option value="h2">Título 2</option>
+    <option value="h3">Título 3</option>
+    <option value="blockquote">Cita</option>
+    <option value="pre">Código</option>
+  </select>
+  <select id="fuente" title="Fuente">
+    <option>Calibri</option>
+    <option>Arial</option>
+    <option>Times New Roman</option>
+    <option>Georgia</option>
+    <option>Verdana</option>
+    <option>Courier New</option>
+    <option>Comic Sans MS</option>
+  </select>
+  <select id="tamano" title="Tamaño">
+    <option value="1">8</option>
+    <option value="2">10</option>
+    <option value="3" selected>12</option>
+    <option value="4">14</option>
+    <option value="5">18</option>
+    <option value="6">24</option>
+    <option value="7">36</option>
+  </select>
+  <span class="sep"></span>
+
+  <button data-cmd="bold" title="Negrita (Ctrl+B)"><b>N</b></button>
+  <button data-cmd="italic" title="Cursiva (Ctrl+I)"><i>K</i></button>
+  <button data-cmd="underline" title="Subrayado (Ctrl+U)"><u>S</u></button>
+  <button data-cmd="strikeThrough" title="Tachado"><s>ab</s></button>
+  <button data-cmd="superscript" title="Superíndice">x²</button>
+  <button data-cmd="subscript" title="Subíndice">x₂</button>
+  <label class="color" title="Color del texto"><span style="font-weight:600">A</span><span class="barrita" id="barritaTexto" style="background:#d62828"></span><input type="color" id="colorTexto" value="#d62828"></label>
+  <label class="color" title="Resaltado"><span>🖍</span><span class="barrita" id="barritaFondo" style="background:#ffe26a"></span><input type="color" id="colorFondo" value="#ffe26a"></label>
+  <span class="sep"></span>
+
+  <button data-cmd="justifyLeft" title="Alinear a la izquierda">⯇</button>
+  <button data-cmd="justifyCenter" title="Centrar">≡</button>
+  <button data-cmd="justifyRight" title="Alinear a la derecha">⯈</button>
+  <button data-cmd="justifyFull" title="Justificar">☰</button>
+  <span class="sep"></span>
+
+  <button data-cmd="insertUnorderedList" title="Viñetas">•≡</button>
+  <button data-cmd="insertOrderedList" title="Numeración">1.≡</button>
+  <button data-cmd="outdent" title="Reducir sangría">⇤</button>
+  <button data-cmd="indent" title="Aumentar sangría">⇥</button>
+  <span class="sep"></span>
+
+  <button data-accion="salto" title="Salto de página (Ctrl+Intro)">⤓</button>
+  <button data-accion="enlace" title="Insertar enlace">🔗</button>
+  <button data-accion="imagen" title="Insertar imagen">🖼</button>
+  <button data-accion="tabla" title="Insertar tabla">▦</button>
+  <button data-cmd="removeFormat" title="Quitar formato">⌫</button>
+</div>
+
+<div id="bannerAct"></div>
+<div id="fondoIndice"></div>
+<div class="cuerpo">
+  <aside id="indice">
+    <h4>Índice <button data-accion="indice" title="Ocultar">✕</button></h4>
+    <div id="listaIndice"></div>
+  </aside>
+  <div class="zona" id="zona">
+    <div class="envoltorio" id="envoltorio">
+      <div class="documento" id="documento">
+        <div id="editor" contenteditable="true" spellcheck="true" lang="es"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="estado">
+  <span id="cuentaPaginas">Página 1 de 1</span>
+  <span id="cuentaPalabras">0 palabras</span>
+  <span id="cuentaCaracteres">0 caracteres</span>
+  <span id="estadoGuardado">Guardado automático activado</span>
+  <div class="der">
+    <span>Zoom</span>
+    <input type="range" id="zoom" min="50" max="200" step="10" value="100">
+    <span id="zoomValor">100%</span>
+  </div>
+</div>
+
+<div id="buscador">
+  <input type="text" id="txtBuscar" placeholder="Buscar…">
+  <input type="text" id="txtReemplazar" placeholder="Reemplazar por…">
+  <div class="fila">
+    <button id="btnSiguiente">Siguiente</button>
+    <button id="btnReemplazar">Reemplazar</button>
+    <button id="btnReemplazarTodo">Reemplazar todo</button>
+    <button id="btnCerrarBuscar">✕</button>
+  </div>
+  <div class="info" id="infoBuscar"></div>
+</div>
+
+<input type="file" id="archivo" hidden accept=".txt,.md,.markdown,.html,.htm,.rtf,.docx,.pdf,.csv,.json,.xml,.log,.odt">
+<input type="file" id="archivoImagen" hidden accept="image/*">
+<div id="aviso"></div>
+<div id="cargando">Cargando…</div>
+<div id="cursorSoltar"></div>
+<div id="recorte">
+  <div class="ayuda">Arrastra el recuadro o sus esquinas para elegir la zona que quieres conservar</div>
+  <div id="recorteZona"><img id="recorteImg" alt=""><div id="recorteCaja"><div class="asa" data-a="nw"></div><div class="asa" data-a="n"></div><div class="asa" data-a="ne"></div><div class="asa" data-a="e"></div><div class="asa" data-a="se"></div><div class="asa" data-a="s"></div><div class="asa" data-a="sw"></div><div class="asa" data-a="w"></div></div></div>
+  <div class="botones"><button id="recorteQuitar">Quitar recorte</button><button id="recorteCancelar">Cancelar</button><button id="recorteAplicar" class="prim">Recortar</button></div>
+</div>
+
+<script>
+const editor = document.getElementById('editor');
+const nombreDoc = document.getElementById('nombreDoc');
+const $ = id => document.getElementById(id);
+const CDN = {
+  pdfjs: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
+  pdfjsWorker: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js',
+  mammoth: 'https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js',
+  jszip: 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
+  html2pdf: 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js'
+};
+
+/* ================= utilidades ================= */
+function aviso(msg, ms = 2800){
+  const a = $('aviso'); a.textContent = msg; a.classList.add('visible');
+  clearTimeout(aviso.t); aviso.t = setTimeout(() => a.classList.remove('visible'), ms);
+}
+function cargando(si, texto = 'Cargando…'){ $('cargando').textContent = texto; $('cargando').classList.toggle('visible', si); }
+function escapar(t){ return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function textoAHtml(t){
+  return t.replace(/\r\n?/g,'\n').split(/\n{2,}/).map(p => '<p>' + escapar(p).replace(/\n/g,'<br>') + '</p>').join('');
+}
+function cmd(c, v = null){
+  const sa = getSelection();
+  if (!sa.rangeCount || !editor.contains(sa.anchorNode)) restaurarSeleccion(); else editor.focus();
+  const t = tituloEnSeleccion();
+  if (t && aplicarATitulo(t.tagName.toLowerCase(), c, v)) return;
+  document.execCommand(c, false, v);
+  if (c === 'formatBlock' || c === 'insertHTML') limpiarTitulos();
+  actualizar();
+}
+function nombreBase(){ return (nombreDoc.value.trim() || 'documento').replace(/[\\/:*?"<>|]/g,'_'); }
+function descargar(contenido, nombre, tipo){
+  const blob = contenido instanceof Blob ? contenido : new Blob([contenido], {type: tipo});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = nombre;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 3000);
+  aviso('Descargado: ' + nombre);
+}
+const cargados = {};
+function cargarScript(src){
+  if (cargados[src]) return cargados[src];
+  return cargados[src] = new Promise((ok, mal) => {
+    const s = document.createElement('script'); s.src = src;
+    s.onload = ok; s.onerror = () => { delete cargados[src]; mal(new Error('No se pudo cargar una librería necesaria. ¿Hay conexión a internet?')); };
+    document.head.appendChild(s);
+  });
+}
+
+/* ================= estilos de título (como en Word) ================= */
+const ESTILOS_DEF = {
+  h1: {font:'', size:20, color:'', bold:true, italic:false, underline:false, align:''},
+  h2: {font:'', size:16, color:'', bold:true, italic:false, underline:false, align:''},
+  h3: {font:'', size:14, color:'', bold:true, italic:false, underline:false, align:''}
+};
+const NOMBRE_NIVEL = {h1:'Título 1', h2:'Título 2', h3:'Título 3'};
+const TAM_SELECT = {1:8, 2:10, 3:12, 4:14, 5:18, 6:24, 7:36};
+let estilos = JSON.parse(JSON.stringify(ESTILOS_DEF));
+let numerarTitulos = true, estilosGuardados = false;
+try {
+  const e = JSON.parse(localStorage.getItem('editor-estilos') || 'null');
+  if (e && e.h1){ estilos = {...estilos, ...e}; estilosGuardados = true; }
+  if (localStorage.getItem('editor-numerar') === '0') numerarTitulos = false;
+} catch(e){}
+
+const hojaTitulos = document.createElement('style'); document.head.appendChild(hojaTitulos);
+function cssNivel(s){
+  return `font-size:${s.size}pt;font-weight:${s.bold ? 700 : 400};font-style:${s.italic ? 'italic' : 'normal'};text-decoration:${s.underline ? 'underline' : 'none'};` +
+    (s.color ? `color:${s.color};` : '') + (s.font ? `font-family:"${s.font}";` : '') + (s.align ? `text-align:${s.align};` : '');
+}
+function cssTitulos(scope, contadores){
+  let c = ['h1','h2','h3'].map(l => `${scope} ${l}{${cssNivel(estilos[l])}}`).join('');
+  if (contadores && numerarTitulos){
+    c += `${scope}{counter-reset:t1 t2 t3}` +
+      `${scope} h1{counter-increment:t1;counter-set:t2 0 t3 0}${scope} h2{counter-increment:t2;counter-set:t3 0}${scope} h3{counter-increment:t3}` +
+      `${scope} h1::before{content:counter(t1) ".\\00a0\\00a0"}` +
+      `${scope} h2::before{content:counter(t1) "." counter(t2) "\\00a0\\00a0"}` +
+      `${scope} h3::before{content:counter(t1) "." counter(t2) "." counter(t3) "\\00a0\\00a0"}`;
+  }
+  return c;
+}
+function aplicarEstilos(guardar = true){
+  hojaTitulos.textContent = cssTitulos('#editor', true);
+  $('txtNumerar').textContent = 'Numerar títulos: ' + (numerarTitulos ? 'sí' : 'no');
+  if (guardar){ guardarPref('editor-estilos', JSON.stringify(estilos)); guardarPref('editor-numerar', numerarTitulos ? '1' : '0'); estilosGuardados = true; }
+  if (typeof paginarPronto === 'function'){ paginarPronto(); clearTimeout(aplicarEstilos.t); aplicarEstilos.t = setTimeout(actualizarIndice, 50); }
+}
+// Número de cada título (1., 1.1, 1.1.1…)
+function numerosTitulos(raiz){
+  const m = new Map(), c = [0, 0, 0];
+  raiz.querySelectorAll('h1,h2,h3').forEach(h => {
+    const n = +h.tagName[1] - 1;
+    c[n]++; for (let i = n + 1; i < 3; i++) c[i] = 0;
+    m.set(h, n === 0 ? c[0] + '.' : c.slice(0, n + 1).join('.'));
+  });
+  return m;
+}
+function tituloEnSeleccion(){
+  const s = getSelection(); if (!s.rangeCount) return null;
+  const el = n => n && (n.nodeType === 3 ? n.parentElement : n);
+  const a = el(s.anchorNode), f = el(s.focusNode);
+  if (!a || !editor.contains(a)) return null;
+  const ta = a.closest('h1,h2,h3'), tf = f && f.closest('h1,h2,h3');
+  if (!ta || !editor.contains(ta)) return null;
+  if (!s.isCollapsed && (!tf || tf.tagName !== ta.tagName)) return null;
+  return ta;
+}
+function aplicarATitulo(nivel, c, v){
+  const s = estilos[nivel];
+  switch (c){
+    case 'bold': s.bold = !s.bold; break;
+    case 'italic': s.italic = !s.italic; break;
+    case 'underline': s.underline = !s.underline; break;
+    case 'foreColor': s.color = v; break;
+    case 'fontName': s.font = v; break;
+    case 'fontSize': s.size = TAM_SELECT[v] || s.size; break;
+    case 'justifyLeft': s.align = ''; break;
+    case 'justifyCenter': s.align = 'center'; break;
+    case 'justifyRight': s.align = 'right'; break;
+    case 'justifyFull': s.align = 'justify'; break;
+    case 'removeFormat': estilos[nivel] = {...ESTILOS_DEF[nivel]}; break;
+    case 'insertOrderedList': case 'insertUnorderedList':
+      if (!numerarTitulos){ numerarTitulos = true; aplicarEstilos(); }
+      aviso('Los títulos se numeran solos (1., 1.1, 2.…). Puedes quitarlo en Ver → Numerar títulos.', 4500);
+      return true;
+    default: return false;
+  }
+  aplicarEstilos();
+  limpiarTitulos();
+  estadoBotones();
+  aviso(`Formato aplicado a todos los «${NOMBRE_NIVEL[nivel]}»`);
+  return true;
+}
+// Los títulos no llevan formato propio: lo toman de su estilo
+const FORMATO_INLINE = new Set(['SPAN','FONT','B','STRONG','I','EM','U','S','STRIKE','DEL','INS']);
+function limpiarTitulos(){
+  // Sacar los títulos de listas (p. ej. <ol><li><h1>)
+  editor.querySelectorAll(':scope > ol, :scope > ul').forEach(lista => {
+    if (!lista.querySelector('h1,h2,h3')) return;
+    const salida = []; let actual = null;
+    [...lista.children].forEach(li => {
+      const hs = li.querySelector('h1,h2,h3');
+      if (hs){ actual = null; salida.push(...[...li.childNodes].filter(n => n.nodeType === 1 || n.nodeValue.trim())); }
+      else { if (!actual){ actual = document.createElement(lista.tagName); salida.push(actual); } actual.appendChild(li); }
+    });
+    salida.forEach(n => { if (n.nodeType === 3){ const p = document.createElement('p'); p.appendChild(n); n = p; } lista.before(n); });
+    lista.remove();
+  });
+  editor.querySelectorAll('h1,h2,h3').forEach(h => {
+    h.removeAttribute('style'); h.removeAttribute('align');
+    h.querySelectorAll('*').forEach(n => {
+      if (FORMATO_INLINE.has(n.tagName) && !n.classList.contains('encontrado')) n.replaceWith(...n.childNodes);
+      else if (n.tagName !== 'MARK') n.removeAttribute('style');
+    });
+    h.normalize();
+  });
+}
+// Si un documento ya traía títulos con formato propio, lo adopta como estilo del nivel
+function adoptarFormatoTitulos(){
+  if (estilosGuardados) return;
+  let cambio = false;
+  ['h1','h2','h3'].forEach(l => {
+    const h = [...editor.querySelectorAll(l)].find(h => h.getAttribute('style') || h.querySelector('span[style],font,b,strong,i,em,u'));
+    if (!h) return;
+    const tw = document.createTreeWalker(h, NodeFilter.SHOW_TEXT); let t;
+    while ((t = tw.nextNode()) && !t.nodeValue.trim());
+    const cs = getComputedStyle(t ? t.parentElement : h);
+    const s = estilos[l];
+    const hex = aHex(cs.color);
+    if (hex && hex !== '1F2430' && hex !== 'E6E8EC' && hex !== '000000') s.color = '#' + hex.toLowerCase();
+    const fuente = primeraFuente(cs.fontFamily); if (fuente && !/calibri|carlito|segoe/i.test(fuente)) s.font = fuente;
+    s.size = Math.round(parseFloat(cs.fontSize) * 0.75 * 2) / 2 || s.size;
+    s.bold = +cs.fontWeight >= 600; s.italic = cs.fontStyle === 'italic';
+    s.underline = (cs.textDecorationLine || '').includes('underline');
+    cambio = true;
+  });
+  if (cambio) aplicarEstilos();
+}
+
+/* ================= menús ================= */
+document.querySelectorAll('.desplegable').forEach(d => {
+  d.querySelector(':scope > button').addEventListener('click', e => {
+    e.stopPropagation();
+    const abierto = d.classList.contains('abierto');
+    document.querySelectorAll('.desplegable').forEach(x => x.classList.remove('abierto'));
+    if (!abierto){ d.classList.add('abierto'); if (esMovil()) d.querySelector('.opciones').style.top = (d.getBoundingClientRect().bottom + 2) + 'px'; else d.querySelector('.opciones').style.top = ''; }
+  });
+  d.addEventListener('mouseenter', () => {
+    if (document.querySelector('.desplegable.abierto') && !d.classList.contains('abierto')){
+      document.querySelectorAll('.desplegable').forEach(x => x.classList.remove('abierto'));
+      d.classList.add('abierto');
+    }
+  });
+});
+document.addEventListener('click', () => document.querySelectorAll('.desplegable').forEach(x => x.classList.remove('abierto')));
+document.querySelectorAll('.herramientas button, .opciones button').forEach(b => { b.addEventListener('mousedown', e => e.preventDefault()); b.addEventListener('pointerdown', e => { if (e.pointerType !== 'mouse') e.preventDefault(); }); });
+document.querySelectorAll('[data-cmd]').forEach(b => b.addEventListener('click', () => cmd(b.dataset.cmd)));
+document.querySelectorAll('[data-accion]').forEach(b => {
+  if (b.id === 'btnBrocha') return;
+  b.addEventListener('click', () => acciones[b.dataset.accion]());
+});
+
+/* ================= selección ================= */
+let rangoGuardado = null;
+document.addEventListener('selectionchange', () => {
+  const s = window.getSelection();
+  if (s.rangeCount && editor.contains(s.anchorNode)) { rangoGuardado = s.getRangeAt(0).cloneRange(); estadoBotones(); }
+});
+function restaurarSeleccion(){
+  editor.focus();
+  if (rangoGuardado){ const s = window.getSelection(); s.removeAllRanges(); s.addRange(rangoGuardado); }
+}
+
+$('bloque').addEventListener('change', e => { restaurarSeleccion(); cmd('formatBlock', '<' + e.target.value + '>'); });
+$('fuente').addEventListener('change', e => { restaurarSeleccion(); cmd('fontName', e.target.value); });
+$('tamano').addEventListener('change', e => { restaurarSeleccion(); cmd('fontSize', e.target.value); });
+$('colorTexto').addEventListener('input', e => { $('barritaTexto').style.background = e.target.value; restaurarSeleccion(); cmd('foreColor', e.target.value); });
+$('colorFondo').addEventListener('input', e => { $('barritaFondo').style.background = e.target.value; restaurarSeleccion(); cmd('hiliteColor', e.target.value); });
+
+function estadoBotones(){
+  ['bold','italic','underline','strikeThrough','superscript','subscript','justifyLeft','justifyCenter','justifyRight','justifyFull','insertUnorderedList','insertOrderedList']
+    .forEach(c => {
+      let on = false; try { on = document.queryCommandState(c); } catch(e){}
+      document.querySelectorAll('.herramientas [data-cmd="'+c+'"]').forEach(b => b.classList.toggle('activo', on));
+    });
+  try {
+    const b = (document.queryCommandValue('formatBlock') || 'p').toLowerCase().replace(/[<>]/g,'');
+    $('bloque').value = ['h1','h2','h3','blockquote','pre'].includes(b) ? b : 'p';
+  } catch(e){}
+}
+
+/* ================= acciones ================= */
+const acciones = {
+  nuevo(){
+    if (editor.innerText.trim() && !confirm('¿Crear un documento nuevo? Se perderán los cambios no guardados.')) return;
+    editor.innerHTML = ''; nombreDoc.value = 'Documento sin título'; actualizar(); editor.focus();
+  },
+  abrir(){ $('archivo').value = ''; $('archivo').click(); },
+  'guardar-docx': () => exportarDocx(),
+  'guardar-html'(){
+    const html = `<!DOCTYPE html>\n<html lang="es"><head><meta charset="UTF-8"><title>${escapar(nombreDoc.value)}</title>
+<style>body{font-family:Calibri,sans-serif;font-size:12pt;line-height:1.5;max-width:800px;margin:40px auto;padding:0 20px}table{border-collapse:collapse}td,th{border:1px solid #999;padding:5px 8px}@media print{body{margin:0;max-width:none}}${cssTitulos('body', false)}</style>
+</head><body>\n${limpioParaExportar(true)}\n</body></html>`;
+    descargar(html, nombreBase() + '.html', 'text/html;charset=utf-8');
+  },
+  async 'guardar-pdf'(){
+    try {
+      cargando(true, 'Generando PDF…');
+      await cargarScript(CDN.html2pdf);
+      const cont = document.createElement('div');
+      cont.innerHTML = `<style>${cssTitulos('.exp-pdf', false)}</style>` + limpioParaExportar(true);
+      cont.className = 'exp-pdf';
+      cont.style.cssText = 'font-family:Calibri,Carlito,sans-serif;font-size:12pt;line-height:1.5;color:#000;background:#fff;width:166mm';
+      cont.querySelectorAll('p').forEach(c => c.style.margin = '0 0 .6em');
+      cont.querySelectorAll('td,th').forEach(c => c.style.cssText += ';border:1px solid #999;padding:5px 8px');
+      cont.querySelectorAll('table').forEach(t => t.style.cssText += ';border-collapse:collapse;width:100%');
+      cont.querySelectorAll('img').forEach(i => i.style.maxWidth = '100%');
+      await html2pdf().set({
+        margin: [25, 22, 25, 22], filename: nombreBase() + '.pdf',
+        image: {type:'jpeg', quality:0.96}, html2canvas: {scale:2, useCORS:true},
+        jsPDF: {unit:'mm', format:'a4', orientation:'portrait'},
+        pagebreak: {mode:['css','legacy'], avoid:['p','h1','h2','h3','li','tr','img']}
+      }).from(cont).save();
+    } catch(e){
+      aviso('No se pudo generar el PDF directamente. En la ventana de imprimir elige "Guardar como PDF".', 6000);
+      window.print();
+    } finally { cargando(false); }
+  },
+  'guardar-txt'(){ const c = document.createElement('div'); c.innerHTML = limpioParaExportar(true); document.body.appendChild(c); const t = c.innerText; c.remove(); descargar(t, nombreBase() + '.txt', 'text/plain;charset=utf-8'); },
+  'guardar-md'(){ const c = document.createElement('div'); c.innerHTML = limpioParaExportar(true); descargar(htmlAMarkdown(c), nombreBase() + '.md', 'text/markdown;charset=utf-8'); },
+  imprimir(){ window.print(); },
+  buscar(){ abrirBuscador(); },
+  copiar(){ restaurarSeleccion(); document.execCommand('copy'); },
+  cortar(){ restaurarSeleccion(); document.execCommand('cut'); actualizar(); },
+  async pegar(){
+    restaurarSeleccion();
+    try {
+      const items = await navigator.clipboard.read();
+      for (const it of items){
+        if (it.types.includes('text/html')){ const h = await (await it.getType('text/html')).text(); restaurarSeleccion(); cmd('insertHTML', extraerCuerpo(h)); return; }
+        const img = it.types.find(t => t.startsWith('image/'));
+        if (img){ const b = await it.getType(img); const r = new FileReader(); r.onload = () => { restaurarSeleccion(); insertarImagen(r.result); }; r.readAsDataURL(b); return; }
+        if (it.types.includes('text/plain')){ const t = await (await it.getType('text/plain')).text(); restaurarSeleccion(); cmd('insertText', t); return; }
+      }
+    } catch(e){
+      try { const t = await navigator.clipboard.readText(); restaurarSeleccion(); cmd('insertText', t); }
+      catch(e2){ aviso('El navegador no deja pegar desde el menú. Usa Ctrl+V.', 4000); }
+    }
+  },
+  brocha(){ empezarBrocha(false); },
+  salto(){ insertarSalto(); },
+  enlace(){
+    restaurarSeleccion();
+    const url = prompt('Dirección del enlace:', 'https://');
+    if (!url) return;
+    restaurarSeleccion();
+    if (window.getSelection().isCollapsed) cmd('insertHTML', `<a href="${escapar(url)}">${escapar(url)}</a>`);
+    else cmd('createLink', url);
+  },
+  imagen(){ $('archivoImagen').value = ''; $('archivoImagen').click(); },
+  tabla(){
+    restaurarSeleccion();
+    const f = parseInt(prompt('Número de filas:', '3'), 10);
+    const c = parseInt(prompt('Número de columnas:', '3'), 10);
+    if (!f || !c || f < 1 || c < 1) return;
+    let h = '<table><tbody>';
+    for (let i = 0; i < f; i++){ h += '<tr>'; for (let j = 0; j < c; j++) h += '<td><br></td>'; h += '</tr>'; }
+    h += '</tbody></table><p><br></p>';
+    restaurarSeleccion(); cmd('insertHTML', h);
+  },
+  fecha(){ restaurarSeleccion(); cmd('insertText', new Date().toLocaleString('es-ES', {dateStyle:'long', timeStyle:'short'})); },
+  numerar(){ numerarTitulos = !numerarTitulos; aplicarEstilos(); },
+  'reset-titulos'(){ estilos = JSON.parse(JSON.stringify(ESTILOS_DEF)); aplicarEstilos(); aviso('Formato de títulos restablecido'); },
+  indice(){
+    if (esMovil()){ const ab = !$('indice').classList.contains('movil-abierto'); $('indice').classList.toggle('movil-abierto', ab); $('fondoIndice').classList.toggle('visible', ab); return; }
+    $('indice').classList.toggle('oculto'); guardarPref('editor-indice', $('indice').classList.contains('oculto') ? '0' : '1');
+  },
+  vista(){ ponerVista(!document.body.classList.contains('vista-movil'), true); },
+  corrector(){ ponerCorrector(!editor.spellcheck); },
+  oscuro(){ document.body.classList.toggle('oscuro'); guardarPref('editor-oscuro', document.body.classList.contains('oscuro') ? '1' : ''); },
+  'zoom-100'(){ ponerZoom(100); }
+};
+function guardarPref(k, v){ try { localStorage.setItem(k, v); } catch(e){} }
+
+/* Copia limpia del contenido (sin marcas internas del editor) */
+function limpioParaExportar(conNumeros = false, paraGuardar = false){
+  const c = editor.cloneNode(true);
+  c.querySelectorAll('img').forEach(i => { i.classList.remove('arrastrando', 'sel'); if (!i.getAttribute('class')) i.removeAttribute('class'); if (!paraGuardar){ delete i.dataset.original; delete i.dataset.recorte; } });
+  if (conNumeros && numerarTitulos) numerosTitulos(c).forEach((n, h) => h.insertAdjacentHTML('afterbegin', `<span class="num-titulo">${n}&nbsp;&nbsp;</span>`));
+  c.querySelectorAll('mark.encontrado').forEach(m => m.replaceWith(...m.childNodes));
+  c.querySelectorAll('.empuje').forEach(quitarEmpuje);
+  c.querySelectorAll('.salto-pagina').forEach(s => { s.removeAttribute('contenteditable'); s.setAttribute('style', 'page-break-after:always;break-after:page'); });
+  return c.innerHTML;
+}
+
+/* ================= paginación visual ================= */
+const MM = 96 / 25.4;
+const PAG_H = 297 * MM, MARGEN_V = 25 * MM, HUECO = 28;
+const CONT_H = PAG_H - 2 * MARGEN_V, PASO = PAG_H + HUECO;
+const documento = $('documento'), envoltorio = $('envoltorio');
+let escala = 1, numPaginas = 1;
+
+function quitarEmpuje(el){
+  el.classList.remove('empuje'); el.style.removeProperty('--empuje');
+  if (!el.getAttribute('style')) el.removeAttribute('style');
+  if (!el.getAttribute('class')) el.removeAttribute('class');
+}
+function posY(el){
+  let y = 0, n = el;
+  while (n && n !== editor){ y += n.offsetTop; n = n.offsetParent; }
+  if (n !== editor) return el.getBoundingClientRect().top / escala - editor.getBoundingClientRect().top / escala;
+  return y;
+}
+function empujar(el, destino){
+  const actual = posY(el);
+  const mt = parseFloat(getComputedStyle(el).marginTop) || 0;
+  let v = mt + (destino - actual);
+  el.classList.add('empuje'); el.style.setProperty('--empuje', v + 'px');
+  const resto = destino - posY(el);              // corrige el colapso de márgenes
+  if (Math.abs(resto) > 0.5){ v += resto; el.style.setProperty('--empuje', v + 'px'); }
+}
+function paginar(){
+  if (document.body.classList.contains('vista-movil')){
+    editor.querySelectorAll('.empuje').forEach(quitarEmpuje);
+    numPaginas = 1; $('cuentaPaginas').textContent = '';
+    if (typeof colocarMarco === 'function') colocarMarco();
+    return;
+  }
+  editor.querySelectorAll('.empuje').forEach(quitarEmpuje);
+  const unidades = [];
+  for (const el of editor.children){
+    if (el.tagName === 'UL' || el.tagName === 'OL'){ for (const li of el.children) unidades.push(li); }
+    else unidades.push(el);
+  }
+  let saltoPendiente = null;
+  for (const el of unidades){
+    if (el.classList.contains('salto-pagina')){ saltoPendiente = el; continue; }
+    const top = posY(el);
+    let alto = el.offsetHeight;
+    if (el.querySelectorAll) el.querySelectorAll('img').forEach(i => { if (i.style.float) alto = Math.max(alto, posY(i) + i.offsetHeight - top); });
+    const pag = Math.floor(top / PASO), finCont = pag * PASO + CONT_H;
+    let destino = null;
+    if (saltoPendiente){
+      const d = (Math.floor(posY(saltoPendiente) / PASO) + 1) * PASO;
+      if (top < d) destino = d;
+      saltoPendiente = null;
+    } else if (top >= finCont - 1){
+      destino = (pag + 1) * PASO;                 // empieza dentro del margen: a la página siguiente
+    } else if (top + alto > finCont + 1 && alto <= CONT_H && top > pag * PASO + 1){
+      destino = (pag + 1) * PASO;                 // no cabe entero: a la página siguiente
+    }
+    if (destino !== null) empujar(el, destino);
+  }
+  const total = Math.max(editor.offsetHeight, 1);
+  numPaginas = Math.max(1, Math.floor((total - 1) / PASO) + 1);
+  if (saltoPendiente) numPaginas = Math.max(numPaginas, Math.floor(posY(saltoPendiente) / PASO) + 2);
+  dibujarPaginas();
+}
+function dibujarPaginas(){
+  const hojas = documento.querySelectorAll('.pagina');
+  for (let i = hojas.length; i < numPaginas; i++){
+    const p = document.createElement('div'); p.className = 'pagina';
+    p.style.top = (i * PASO) + 'px'; p.style.height = PAG_H + 'px';
+    p.innerHTML = `<div class="num">${i + 1}</div>`;
+    documento.insertBefore(p, editor);
+  }
+  for (let i = numPaginas; i < hojas.length; i++) hojas[i].remove();
+  documento.style.height = (numPaginas * PASO - HUECO) + 'px';
+  ajustarEscala();
+  paginaActual();
+  if (typeof colocarMarco === 'function') colocarMarco();
+}
+function ajustarEscala(){
+  envoltorio.style.width = (documento.offsetWidth * escala) + 'px';
+  envoltorio.style.height = (documento.offsetHeight * escala) + 'px';
+}
+function paginaActual(){
+  const z = $('zona').getBoundingClientRect();
+  const y = (z.top + z.height / 3 - documento.getBoundingClientRect().top) / escala;
+  const p = Math.min(numPaginas, Math.max(1, Math.floor(y / PASO) + 1));
+  if (!document.body.classList.contains('vista-movil')) $('cuentaPaginas').textContent = `Página ${p} de ${numPaginas}`;
+}
+let rafPag = 0;
+function paginarPronto(){ cancelAnimationFrame(rafPag); rafPag = requestAnimationFrame(paginar); }
+window.addEventListener('resize', paginarPronto);
+editor.addEventListener('load', paginarPronto, true);   // imágenes
+if (document.fonts) document.fonts.ready.then(paginarPronto);
+
+// Clic en zonas vacías de la hoja → al editor
+documento.addEventListener('mousedown', e => {
+  if (e.target === documento){
+    e.preventDefault(); editor.focus();
+    const r = document.createRange(); r.selectNodeContents(editor); r.collapse(false);
+    const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+  }
+});
+
+/* Salto de página (Ctrl+Intro) */
+function bloqueRaiz(n){
+  while (n && n.parentNode !== editor) n = n.parentNode;
+  return n;
+}
+function estaVacio(el){ return !el.textContent.replace(/​/g,'').trim() && !el.querySelector('img,table,hr'); }
+function insertarSalto(){
+  restaurarSeleccion();
+  const s = getSelection(); if (!s.rangeCount) return;
+  const r = s.getRangeAt(0); r.deleteContents();
+  const salto = document.createElement('div'); salto.className = 'salto-pagina'; salto.contentEditable = 'false';
+  let nuevo;
+  let bloque = bloqueRaiz(r.startContainer === editor ? editor.childNodes[r.startOffset] || editor.lastChild : r.startContainer);
+  if (!bloque || bloque.nodeType === 3 || ['TABLE','HR'].includes(bloque.tagName) || bloque.classList.contains('salto-pagina')){
+    nuevo = document.createElement('p'); nuevo.innerHTML = '<br>';
+    if (bloque && bloque.nodeType === 3){ const p = document.createElement('p'); bloque.replaceWith(p); p.appendChild(bloque); bloque = p; }
+    if (bloque) bloque.after(salto, nuevo); else editor.append(salto, nuevo);
+  } else {
+    const r2 = document.createRange();
+    r2.setStart(r.startContainer, r.startOffset); r2.setEnd(bloque, bloque.childNodes.length);
+    const resto = r2.extractContents();
+    nuevo = document.createElement(/^H\d$/.test(bloque.tagName) ? 'p' : bloque.tagName);
+    if (bloque.getAttribute('style')) nuevo.setAttribute('style', bloque.getAttribute('style'));
+    nuevo.appendChild(resto);
+    if (estaVacio(nuevo)) nuevo.innerHTML = nuevo.tagName === 'UL' || nuevo.tagName === 'OL' ? '<li><br></li>' : '<br>';
+    if (estaVacio(bloque) && !(bloque.tagName === 'UL' || bloque.tagName === 'OL')) bloque.innerHTML = '<br>';
+    bloque.after(salto, nuevo);
+  }
+  const destino = nuevo.tagName === 'UL' || nuevo.tagName === 'OL' ? nuevo.querySelector('li') || nuevo : nuevo;
+  const nr = document.createRange(); nr.setStart(destino, 0); nr.collapse(true);
+  s.removeAllRanges(); s.addRange(nr);
+  actualizar();
+  requestAnimationFrame(() => { const sel = getSelection(); if (sel.rangeCount){ const el = sel.anchorNode.nodeType === 1 ? sel.anchorNode : sel.anchorNode.parentElement; el.scrollIntoView({block:'center'}); } });
+}
+
+/* ================= índice de títulos ================= */
+function actualizarIndice(){
+  const hs = [...editor.querySelectorAll('h1,h2,h3')].filter(h => h.textContent.trim());
+  const lista = $('listaIndice');
+  if (!hs.length){ lista.innerHTML = '<div class="vacio">Aún no hay títulos. Usa «Título 1», «Título 2» o «Título 3» en el selector de estilo y aparecerán aquí.</div>'; return; }
+  lista.innerHTML = '';
+  const nums = numerosTitulos(editor);
+  hs.forEach(h => {
+    const a = document.createElement('a');
+    a.className = 'n' + h.tagName[1]; a.textContent = h.textContent.trim(); a.title = a.textContent;
+    if (numerarTitulos){ const sp = document.createElement('span'); sp.className = 'nt'; sp.textContent = nums.get(h); a.prepend(sp); a.title = nums.get(h) + ' ' + a.title; }
+    a.onclick = () => {
+      if (esMovil()){ $('indice').classList.remove('movil-abierto'); $('fondoIndice').classList.remove('visible'); }
+      h.scrollIntoView({behavior:'smooth', block:'start'});
+      const r = document.createRange(); r.selectNodeContents(h); r.collapse(true);
+      editor.focus({preventScroll:true}); const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+    };
+    a._h = h; lista.appendChild(a);
+  });
+  marcarIndice();
+}
+function marcarIndice(){
+  const enlaces = [...$('listaIndice').querySelectorAll('a')]; if (!enlaces.length) return;
+  const limite = $('zona').getBoundingClientRect().top + 90;
+  let actual = enlaces[0];
+  for (const a of enlaces){ if (a._h.getBoundingClientRect().top <= limite) actual = a; else break; }
+  enlaces.forEach(a => a.classList.toggle('actual', a === actual));
+}
+$('zona').addEventListener('scroll', () => { marcarIndice(); paginaActual(); });
+
+/* ================= copiar formato (brocha) ================= */
+let formatoCopiado = null, brochaFija = false;
+const btnBrocha = $('btnBrocha');
+btnBrocha.addEventListener('click', () => { clearTimeout(btnBrocha.t); btnBrocha.t = setTimeout(() => empezarBrocha(false), 230); });
+btnBrocha.addEventListener('dblclick', () => { clearTimeout(btnBrocha.t); empezarBrocha(true); });
+
+function elementoEnCursor(){
+  const s = getSelection(); if (!s.rangeCount) return null;
+  let n = s.anchorNode;
+  if (!s.isCollapsed){ const r = s.getRangeAt(0); n = r.startContainer; if (n.nodeType === 1 && n.childNodes[r.startOffset]) n = n.childNodes[r.startOffset]; }
+  const el = n && (n.nodeType === 3 ? n.parentElement : n);
+  return el && editor.contains(el) ? el : null;
+}
+function fondoDe(el){
+  while (el && el !== editor){
+    const b = getComputedStyle(el).backgroundColor;
+    if (b && b !== 'transparent' && !/rgba\(.*,\s*0\)$/.test(b) && !el.matches('mark.encontrado')) return b;
+    el = el.parentElement;
+  }
+  return null;
+}
+function empezarBrocha(fija){
+  if (formatoCopiado){
+    const s = getSelection();
+    if (rangoGuardado && !rangoGuardado.collapsed && (!s.rangeCount || !editor.contains(s.anchorNode))) restaurarSeleccion();
+    const s2 = getSelection();
+    if (s2.rangeCount && !s2.isCollapsed && editor.contains(s2.anchorNode)) aplicarBrocha(); else terminarBrocha();
+    return;
+  }
+  restaurarSeleccion();
+  const el = elementoEnCursor();
+  if (!el){ aviso('Pon el cursor en el texto cuyo formato quieres copiar'); return; }
+  const cs = getComputedStyle(el);
+  const q = c => { try { return document.queryCommandState(c); } catch(e){ return false; } };
+  const blq = el.closest('h1,h2,h3,blockquote,pre,p,li,div:not(#editor)');
+  formatoCopiado = {
+    bold: q('bold'), italic: q('italic'), underline: q('underline'), strikeThrough: q('strikeThrough'),
+    superscript: q('superscript'), subscript: q('subscript'),
+    fuente: cs.fontFamily.split(',')[0].replace(/['"]/g,'').trim(), tam: cs.fontSize, color: cs.color, fondo: fondoDe(el),
+    bloque: blq && /^(H[1-3]|BLOCKQUOTE|PRE)$/.test(blq.tagName) ? blq.tagName.toLowerCase() : 'p'
+  };
+  brochaFija = fija;
+  document.body.classList.add('brocha'); btnBrocha.classList.add('activo');
+  aviso(esTactil() ? 'Selecciona el texto y vuelve a tocar 🖌 para aplicar el formato' : fija ? 'Copiar formato: selecciona textos para aplicarlo. Esc para terminar.' : 'Selecciona el texto al que quieres aplicar el formato', 3500);
+}
+function terminarBrocha(){ formatoCopiado = null; brochaFija = false; document.body.classList.remove('brocha'); btnBrocha.classList.remove('activo'); }
+function aplicarBrocha(){
+  const f = formatoCopiado; if (!f) return;
+  const s = getSelection(); if (!s.rangeCount || !editor.contains(s.anchorNode)) return;
+  if (s.isCollapsed){ try { s.modify('move','backward','word'); s.modify('extend','forward','word'); } catch(e){} }
+  if (s.isCollapsed) return;
+  const q = c => { try { return document.queryCommandState(c); } catch(e){ return false; } };
+  // Estilo de párrafo
+  const actualBloque = (document.queryCommandValue('formatBlock') || 'p').toLowerCase().replace(/[<>]/g,'');
+  if (f.bloque !== 'p' ? actualBloque !== f.bloque : /^(h[1-3]|blockquote|pre)$/.test(actualBloque)) document.execCommand('formatBlock', false, '<' + f.bloque + '>');
+  document.execCommand('removeFormat');
+  ['bold','italic','underline','strikeThrough','superscript','subscript'].forEach(c => { if (q(c) !== f[c]) document.execCommand(c); });
+  document.execCommand('fontName', false, f.fuente);
+  document.execCommand('foreColor', false, f.color);
+  document.execCommand('hiliteColor', false, f.fondo || 'transparent');
+  // Tamaño exacto en px
+  const previos = new Set(editor.querySelectorAll('[style*="xxx-large"], font[size="7"]'));
+  document.execCommand('fontSize', false, '7');
+  editor.querySelectorAll('[style*="xxx-large"], font[size="7"]').forEach(n => {
+    if (previos.has(n)) return;
+    if (n.tagName === 'FONT') n.removeAttribute('size');
+    n.style.fontSize = f.tam;
+  });
+  limpiarTitulos(); actualizar();
+  if (!brochaFija) terminarBrocha();
+}
+editor.addEventListener('mouseup', () => { if (formatoCopiado) setTimeout(aplicarBrocha, 0); });
+
+/* ================= corrector ortográfico ================= */
+function ponerCorrector(on){
+  editor.spellcheck = on; editor.setAttribute('spellcheck', on ? 'true' : 'false');
+  $('txtCorrector').textContent = 'Corrector ortográfico: ' + (on ? 'activado' : 'desactivado');
+  guardarPref('editor-corrector', on ? '1' : '0');
+  // Forzar que el navegador vuelva a revisar el texto
+  const html = editor.innerHTML; editor.blur(); editor.innerHTML = html; editor.focus(); paginarPronto();
+  if (on) aviso('Las palabras mal escritas se subrayan en rojo. Clic derecho para ver sugerencias.', 4000);
+}
+
+/* ================= abrir archivos ================= */
+$('archivo').addEventListener('change', e => { if (e.target.files[0]) abrirArchivo(e.target.files[0]); });
+
+async function abrirArchivo(file, sinConfirmar = false){
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (!sinConfirmar && editor.innerText.trim() && !confirm('¿Abrir "' + file.name + '"? Se reemplazará el contenido actual.')) return;
+  try {
+    cargando(true, 'Abriendo ' + file.name + '…');
+    let html;
+    if (ext === 'pdf') html = await leerPdf(file);
+    else if (ext === 'docx') html = await leerDocx(file);
+    else if (ext === 'odt') html = await leerOdt(file);
+    else {
+      const texto = await file.text();
+      if (ext === 'html' || ext === 'htm') html = extraerCuerpo(texto);
+      else if (ext === 'rtf') html = rtfAHtml(texto);
+      else if (ext === 'md' || ext === 'markdown') html = markdownAHtml(texto);
+      else html = textoAHtml(texto);
+    }
+    editor.innerHTML = html || '<p><br></p>';
+    quitarNumerosEscritos();
+    normalizarSaltos(); limpiarTitulos();
+    nombreDoc.value = file.name.replace(/\.[^.]+$/, '');
+    actualizar(); $('zona').scrollTop = 0;
+    aviso('Abierto: ' + file.name);
+    return true;
+  } catch(err){
+    console.error(err);
+    alert('No se pudo abrir el archivo.\n\n' + err.message);
+  } finally { cargando(false); }
+}
+// Al reabrir un documento exportado, quita los números de título escritos (ya los pone el editor)
+function quitarNumerosEscritos(){
+  editor.querySelectorAll('.num-titulo').forEach(n => n.remove());
+  if (!numerarTitulos) return;
+  editor.querySelectorAll('h1,h2,h3').forEach(h => {
+    const tw = document.createTreeWalker(h, NodeFilter.SHOW_TEXT); const t = tw.nextNode();
+    if (t) t.nodeValue = t.nodeValue.replace(/^\s*\d+(\.\d+)*\.?[\s\u00a0]+/, '');
+  });
+}
+// Convierte saltos de página de otros formatos al salto del editor
+function normalizarSaltos(){
+  editor.querySelectorAll('[style*="page-break-after"],[style*="page-break-before"],[style*="break-after: page"],.pdf-pagina').forEach(el => {
+    if (el.classList.contains('salto-pagina')) return;
+    const st = el.getAttribute('style') || '';
+    const s = document.createElement('div'); s.className = 'salto-pagina'; s.contentEditable = 'false';
+    if (el.classList.contains('pdf-pagina') || !el.textContent.trim()) { el.replaceWith(s); return; }
+    const raiz = bloqueRaiz(el) || el;
+    if (/page-break-before/.test(st)) raiz.before(s); else raiz.after(s);
+  });
+  editor.querySelectorAll('.salto-pagina').forEach(s => {
+    s.contentEditable = 'false'; s.removeAttribute('style');
+    if (s.parentNode !== editor){ const r = bloqueRaiz(s); if (r) r.after(s); }
+  });
+}
+
+function extraerCuerpo(texto){
+  const doc = new DOMParser().parseFromString(texto, 'text/html');
+  doc.querySelectorAll('script,style,link,meta,iframe,object,embed,title').forEach(n => n.remove());
+  doc.querySelectorAll('*').forEach(n => [...n.attributes].forEach(a => { if (/^on/i.test(a.name)) n.removeAttribute(a.name); }));
+  return doc.body.innerHTML;
+}
+
+async function leerDocx(file){
+  await cargarScript(CDN.mammoth);
+  const r = await mammoth.convertToHtml({arrayBuffer: await file.arrayBuffer()});
+  return r.value;
+}
+
+async function leerOdt(file){
+  await cargarScript(CDN.jszip);
+  const zip = await JSZip.loadAsync(await file.arrayBuffer());
+  const xml = await zip.file('content.xml').async('string');
+  const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  const TEXT = 'urn:oasis:names:tc:opendocument:xmlns:text:1.0';
+  const cuerpo = doc.getElementsByTagNameNS('urn:oasis:names:tc:opendocument:xmlns:office:1.0', 'text')[0];
+  function conv(n){
+    let h = '';
+    n.childNodes.forEach(c => {
+      if (c.nodeType === 3) { h += escapar(c.nodeValue); return; }
+      if (c.namespaceURI !== TEXT) { h += conv(c); return; }
+      switch (c.localName){
+        case 'h': { const l = Math.min(parseInt(c.getAttributeNS(TEXT,'outline-level')) || 1, 3); h += `<h${l}>${conv(c)}</h${l}>`; break; }
+        case 'p': h += '<p>' + (conv(c) || '<br>') + '</p>'; break;
+        case 'list': h += '<ul>' + conv(c) + '</ul>'; break;
+        case 'list-item': h += '<li>' + conv(c) + '</li>'; break;
+        case 'line-break': h += '<br>'; break;
+        case 'tab': h += '&emsp;'; break;
+        case 's': h += '&nbsp;'.repeat(parseInt(c.getAttributeNS(TEXT,'c')) || 1); break;
+        default: h += conv(c);
+      }
+    });
+    return h;
+  }
+  return conv(cuerpo);
+}
+
+/* PDF: extrae el texto agrupado en líneas, párrafos y títulos; cada página del PDF = una página */
+async function leerPdf(file){
+  await cargarScript(CDN.pdfjs);
+  pdfjsLib.GlobalWorkerOptions.workerSrc = CDN.pdfjsWorker;
+  const pdf = await pdfjsLib.getDocument({data: await file.arrayBuffer()}).promise;
+  let html = '', totalTexto = 0;
+  for (let n = 1; n <= pdf.numPages; n++){
+    cargando(true, `Leyendo PDF… página ${n} de ${pdf.numPages}`);
+    const pagina = await pdf.getPage(n);
+    const anchoPag = pagina.getViewport({scale:1}).width;
+    const contenido = await pagina.getTextContent();
+    const lineas = [];
+    for (const it of contenido.items){
+      if (!it.str) continue;
+      const x = it.transform[4], y = it.transform[5];
+      const alto = Math.abs(it.transform[3]) || it.height || 10;
+      let l = lineas.find(l => Math.abs(l.y - y) < alto * 0.5);
+      if (!l){ l = {y, alto, trozos: []}; lineas.push(l); }
+      l.alto = Math.max(l.alto, alto);
+      const familia = contenido.styles[it.fontName]?.fontFamily || '';
+      l.trozos.push({x, ancho: it.width, str: it.str, negrita: /bold|black|heavy/i.test(it.fontName + ' ' + familia)});
+    }
+    lineas.sort((a, b) => b.y - a.y);
+    lineas.forEach(l => l.trozos.sort((a, b) => a.x - b.x));
+    const conteo = {};
+    lineas.forEach(l => { const k = Math.round(l.alto); conteo[k] = (conteo[k] || 0) + l.trozos.length; });
+    const normal = +Object.keys(conteo).sort((a, b) => conteo[b] - conteo[a])[0] || 10;
+
+    let parrafo = [], ultimoY = null, ultimoAlto = normal, ultimoTam = 0;
+    const cerrar = () => {
+      if (!parrafo.length) return;
+      const t = parrafo.join(' ').replace(/\s+/g,' ').replace(/(\w)- (\w)/g,'$1$2').trim();
+      if (t){
+        totalTexto += t.length;
+        if (ultimoTam >= normal * 1.6) html += `<h1>${t}</h1>`;
+        else if (ultimoTam >= normal * 1.25) html += `<h2>${t}</h2>`;
+        else html += `<p>${t}</p>`;
+      }
+      parrafo = [];
+    };
+    for (const l of lineas){
+      const tam = Math.round(l.alto), esTitulo = tam >= normal * 1.25;
+      let texto = '', finAnterior = null;
+      for (const t of l.trozos){
+        if (finAnterior !== null && t.x - finAnterior > l.alto * 0.25 && !texto.endsWith(' ') && !t.str.startsWith(' ')) texto += ' ';
+        texto += t.negrita && !esTitulo ? '<b>' + escapar(t.str) + '</b>' : escapar(t.str);
+        finAnterior = t.x + t.ancho;
+      }
+      texto = texto.replace(/<\/b>(\s*)<b>/g, '$1');
+      const salto = ultimoY === null ? 0 : ultimoY - l.y;
+      const plano = texto.replace(/<[^>]+>/g,'');
+      if (ultimoY === null || salto > ultimoAlto * 1.75 || Math.abs(tam - ultimoTam) > 1.5 || /^\s*([•·▪\-–]|\d+[.)])\s/.test(plano)) cerrar();
+      parrafo.push(texto);
+      ultimoY = l.y; ultimoAlto = l.alto; ultimoTam = tam;
+      const ult = l.trozos[l.trozos.length - 1];
+      if (ult.x + ult.ancho < anchoPag * 0.6 && /[.:!?»"]\s*$/.test(plano)) cerrar();
+    }
+    cerrar();
+    if (n < pdf.numPages) html += '<div class="salto-pagina" contenteditable="false"></div>';
+  }
+  if (totalTexto < 20) throw new Error('Este PDF no contiene texto seleccionable (probablemente es un documento escaneado o una imagen). Haría falta OCR para poder editarlo.');
+  return html;
+}
+
+function rtfAHtml(rtf){
+  let txt = rtf
+    .replace(/\{\\\*[^{}]*(\{[^{}]*\}[^{}]*)*\}/g, '')
+    .replace(/\{\\(fonttbl|colortbl|stylesheet|info|pict)[\s\S]*?\}\}?/g, '')
+    .replace(/\\page\b ?/g, '\n\u000C\n')
+    .replace(/\\par[d]?\b ?/g, '\n')
+    .replace(/\\line\b ?/g, '\n')
+    .replace(/\\tab\b ?/g, '\t')
+    .replace(/\\'([0-9a-f]{2})/gi, (m, h) => new TextDecoder('windows-1252').decode(new Uint8Array([parseInt(h, 16)])))
+    .replace(/\\u(-?\d+)\??/g, (m, n) => String.fromCharCode(n < 0 ? 65536 + +n : +n))
+    .replace(/\\[a-z]+-?\d* ?/gi, '')
+    .replace(/\\([{}\\])/g, '$1')
+    .replace(/[{}]/g, '');
+  return txt.trim().split('\u000C').map(textoAHtml).join('<div class="salto-pagina" contenteditable="false"></div>');
+}
+
+function markdownAHtml(md){
+  const lineas = md.replace(/\r\n?/g,'\n').split('\n');
+  let h = '', lista = null, codigo = false, buf = [];
+  const inline = s => escapar(s)
+    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img alt="$1" src="$2">')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
+    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/__([^_]+)__/g, '<b>$1</b>')
+    .replace(/\*([^*]+)\*/g, '<i>$1</i>').replace(/_([^_]+)_/g, '<i>$1</i>')
+    .replace(/~~([^~]+)~~/g, '<s>$1</s>').replace(/`([^`]+)`/g, '<code>$1</code>');
+  const cerrarP = () => { if (buf.length){ h += '<p>' + buf.map(inline).join('<br>') + '</p>'; buf = []; } };
+  const cerrarL = () => { if (lista){ h += `</${lista}>`; lista = null; } };
+  for (const l of lineas){
+    if (/^```/.test(l)){ cerrarP(); cerrarL(); h += codigo ? '</pre>' : '<pre>'; codigo = !codigo; continue; }
+    if (codigo){ h += escapar(l) + '\n'; continue; }
+    let m;
+    if ((m = l.match(/^(#{1,6})\s+(.*)/))){ cerrarP(); cerrarL(); const n = Math.min(m[1].length, 3); h += `<h${n}>${inline(m[2])}</h${n}>`; }
+    else if ((m = l.match(/^\s*[-*+]\s+(.*)/))){ cerrarP(); if (lista !== 'ul'){ cerrarL(); h += '<ul>'; lista = 'ul'; } h += '<li>' + inline(m[1]) + '</li>'; }
+    else if ((m = l.match(/^\s*\d+[.)]\s+(.*)/))){ cerrarP(); if (lista !== 'ol'){ cerrarL(); h += '<ol>'; lista = 'ol'; } h += '<li>' + inline(m[1]) + '</li>'; }
+    else if ((m = l.match(/^>\s?(.*)/))){ cerrarP(); cerrarL(); h += '<blockquote>' + inline(m[1]) + '</blockquote>'; }
+    else if (/^(-{3,}|\*{3,})\s*$/.test(l)){ cerrarP(); cerrarL(); h += '<hr>'; }
+    else if (!l.trim()){ cerrarP(); cerrarL(); }
+    else { cerrarL(); buf.push(l); }
+  }
+  cerrarP(); cerrarL(); if (codigo) h += '</pre>';
+  return h;
+}
+
+function htmlAMarkdown(nodo){
+  function rec(n){
+    if (n.nodeType === 3) return n.nodeValue.replace(/\s+/g, ' ');
+    if (n.nodeType !== 1) return '';
+    const hijos = () => [...n.childNodes].map(rec).join('');
+    if (n.classList.contains('salto-pagina')) return '\n\n---\n\n';
+    switch (n.tagName.toLowerCase()){
+      case 'h1': return '\n# ' + hijos().trim() + '\n\n';
+      case 'h2': return '\n## ' + hijos().trim() + '\n\n';
+      case 'h3': case 'h4': case 'h5': case 'h6': return '\n### ' + hijos().trim() + '\n\n';
+      case 'p': case 'div': return hijos().trim() + '\n\n';
+      case 'br': return '  \n';
+      case 'b': case 'strong': return '**' + hijos() + '**';
+      case 'i': case 'em': return '*' + hijos() + '*';
+      case 's': case 'strike': case 'del': return '~~' + hijos() + '~~';
+      case 'code': return '`' + hijos() + '`';
+      case 'pre': return '\n```\n' + n.textContent + '\n```\n\n';
+      case 'a': return '[' + hijos() + '](' + n.getAttribute('href') + ')';
+      case 'img': return '![' + (n.alt || '') + '](' + ((n.getAttribute('src')||'').startsWith('data:') ? 'imagen' : n.getAttribute('src')) + ')';
+      case 'blockquote': return '> ' + hijos().trim() + '\n\n';
+      case 'hr': return '\n---\n\n';
+      case 'ul': return [...n.children].map(li => '- ' + rec(li).trim()).join('\n') + '\n\n';
+      case 'ol': return [...n.children].map((li, i) => (i + 1) + '. ' + rec(li).trim()).join('\n') + '\n\n';
+      case 'table': {
+        const filas = [...n.querySelectorAll('tr')].map(tr => '| ' + [...tr.children].map(c => c.textContent.trim().replace(/\|/g,'\\|')).join(' | ') + ' |');
+        if (filas.length){ const cols = n.querySelector('tr').children.length; filas.splice(1, 0, '|' + ' --- |'.repeat(cols)); }
+        return filas.join('\n') + '\n\n';
+      }
+      default: return hijos();
+    }
+  }
+  return rec(nodo).replace(/\n{3,}/g, '\n\n').trim() + '\n';
+}
+
+/* ================= exportar a DOCX ================= */
+const W_NS = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"';
+function xe(s){ return String(s).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g,'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function aHex(c){
+  if (!c) return null; c = c.trim().toLowerCase();
+  if (c === 'transparent' || c === 'inherit' || c === 'initial') return null;
+  let m = c.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/);
+  if (m){ let h = m[1]; if (h.length === 3) h = h.split('').map(x => x + x).join(''); return h.toUpperCase(); }
+  m = c.match(/rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)(?:[,\s\/]+([\d.]+))?/);
+  if (m){ if (m[4] !== undefined && +m[4] === 0) return null; return [m[1],m[2],m[3]].map(n => (+n).toString(16).padStart(2,'0')).join('').toUpperCase(); }
+  const ctx = aHex.ctx || (aHex.ctx = document.createElement('canvas').getContext('2d'));
+  ctx.fillStyle = '#000001'; ctx.fillStyle = c;
+  return ctx.fillStyle !== '#000001' && ctx.fillStyle.startsWith('#') ? ctx.fillStyle.slice(1).toUpperCase() : null;
+}
+const TAM_CLAVE = {'xx-small':9,'x-small':10,'small':13,'medium':16,'large':18,'x-large':24,'xx-large':32,'xxx-large':48};
+const TAM_FONT = {1:10,2:13,3:16,4:18,5:24,6:32,7:48};
+function aMedioPunto(v){
+  v = String(v).trim(); let px;
+  if (TAM_CLAVE[v]) px = TAM_CLAVE[v];
+  else if (/pt$/.test(v)) return Math.round(parseFloat(v) * 2);
+  else if (/px$/.test(v)) px = parseFloat(v);
+  else if (/r?em$/.test(v)) px = parseFloat(v) * 16;
+  else return null;
+  return Math.round(px * 1.5);
+}
+function primeraFuente(f){ return f.split(',')[0].replace(/['"]/g,'').trim(); }
+function formatoDe(el, base){
+  const f = {...base}, t = el.tagName.toLowerCase(), st = el.style;
+  if (t === 'b' || t === 'strong') f.b = true;
+  if (t === 'i' || t === 'em') f.i = true;
+  if (t === 'u' || t === 'ins') f.u = true;
+  if (t === 's' || t === 'strike' || t === 'del') f.s = true;
+  if (t === 'sup') f.va = 'superscript';
+  if (t === 'sub') f.va = 'subscript';
+  if (t === 'code') f.font = 'Courier New';
+  if (t === 'mark' && !el.classList.contains('encontrado')) f.bg = 'FFFF00';
+  if (t === 'font'){
+    if (el.getAttribute('color')) f.color = aHex(el.getAttribute('color')) || f.color;
+    if (el.getAttribute('face')) f.font = primeraFuente(el.getAttribute('face'));
+    if (el.getAttribute('size') && TAM_FONT[el.getAttribute('size')]) f.sz = Math.round(TAM_FONT[el.getAttribute('size')] * 1.5);
+  }
+  if (st.fontWeight) f.b = st.fontWeight === 'bold' || st.fontWeight === 'bolder' || +st.fontWeight >= 600;
+  if (st.fontStyle) f.i = st.fontStyle === 'italic' || st.fontStyle === 'oblique';
+  const dec = (st.textDecorationLine || st.textDecoration || '');
+  if (dec.includes('underline')) f.u = true;
+  if (dec.includes('line-through')) f.s = true;
+  if (st.color) f.color = aHex(st.color) || f.color;
+  if (st.backgroundColor){ const h = aHex(st.backgroundColor); f.bg = h || (st.backgroundColor === 'transparent' ? null : f.bg); }
+  if (st.fontFamily) f.font = primeraFuente(st.fontFamily);
+  if (st.fontSize){ const s = aMedioPunto(st.fontSize); if (s) f.sz = s; }
+  if (st.verticalAlign === 'super') f.va = 'superscript';
+  if (st.verticalAlign === 'sub') f.va = 'subscript';
+  return f;
+}
+function rPr(f){
+  let x = '';
+  if (f.font) x += `<w:rFonts w:ascii="${xe(f.font)}" w:hAnsi="${xe(f.font)}" w:cs="${xe(f.font)}"/>`;
+  if (f.b) x += '<w:b/><w:bCs/>';
+  if (f.i) x += '<w:i/><w:iCs/>';
+  if (f.s) x += '<w:strike/>';
+  if (f.color) x += `<w:color w:val="${f.color}"/>`;
+  if (f.sz) x += `<w:sz w:val="${f.sz}"/><w:szCs w:val="${f.sz}"/>`;
+  if (f.u) x += '<w:u w:val="single"/>';
+  if (f.bg) x += `<w:shd w:val="clear" w:color="auto" w:fill="${f.bg}"/>`;
+  if (f.va) x += `<w:vertAlign w:val="${f.va}"/>`;
+  return x ? `<w:rPr>${x}</w:rPr>` : '';
+}
+const BLOQUES = new Set(['p','div','h1','h2','h3','h4','h5','h6','blockquote','pre','ul','ol','li','table','hr','section','article','header','footer','figure','tbody','thead','tfoot','tr','center']);
+const ANCHO_TWIPS = Math.round(166 * 56.693);  // ancho útil A4 con márgenes de 22 mm
+
+class EscritorDocx {
+  constructor(){ this.rels = []; this.media = []; this.exts = new Set(); this.nums = []; this.idImg = 0; }
+  rel(tipo, destino, externo){
+    const id = 'rId' + (this.rels.length + 10);
+    this.rels.push({id, tipo, destino, externo}); return id;
+  }
+  run(texto, f){
+    texto = f.pre ? texto : texto.replace(/[\r\n\t]+/g, ' ');
+    if (!texto) return '';
+    const partes = f.pre ? texto.split('\n') : [texto];
+    return partes.map((p, i) => (i ? `<w:r>${rPr(f)}<w:br/></w:r>` : '') + (p ? `<w:r>${rPr(f)}<w:t xml:space="preserve">${xe(p)}</w:t></w:r>` : '')).join('');
+  }
+  inline(n, f){
+    if (n.nodeType === 3) return this.run(n.nodeValue.replace(/​/g,''), f);
+    if (n.nodeType !== 1) return '';
+    const t = n.tagName.toLowerCase();
+    if (t === 'br') return '<w:r><w:br/></w:r>';
+    if (t === 'img') return this.imagen(n);
+    if (t === 'script' || t === 'style') return '';
+    const f2 = formatoDe(n, f);
+    if (t === 'a' && n.getAttribute('href') && !f.enlace && /^(https?:|mailto:)/i.test(n.getAttribute('href'))){
+      const id = this.rel('hyperlink', n.getAttribute('href'), true);
+      const fe = {...f2, color: f2.color || '0563C1', u: true, enlace: true};
+      return `<w:hyperlink r:id="${id}">${[...n.childNodes].map(c => this.inline(c, fe)).join('')}</w:hyperlink>`;
+    }
+    return [...n.childNodes].map(c => this.inline(c, f2)).join('');
+  }
+  imagen(img){
+    const src = img.getAttribute('src') || '';
+    const m = src.match(/^data:image\/(png|jpe?g|gif|bmp);base64,(.+)$/i);
+    if (!m) return img.alt ? this.run('[' + img.alt + ']', {}) : '';
+    const ext = m[1].toLowerCase() === 'png' ? 'png' : m[1].toLowerCase() === 'gif' ? 'gif' : m[1].toLowerCase() === 'bmp' ? 'bmp' : 'jpeg';
+    const n = ++this.idImg, nombre = `imagen${n}.${ext}`;
+    this.media.push({nombre, datos: m[2]}); this.exts.add(ext);
+    const id = this.rel('image', 'media/' + nombre);
+    let w = parseFloat(img.style.width) || +img.getAttribute('width') || img.naturalWidth || 300;
+    let h = parseFloat(img.style.height) || +img.getAttribute('height') || (img.naturalWidth ? img.naturalHeight * w / img.naturalWidth : 200);
+    const max = 166 * MM; if (w > max){ h = h * max / w; w = max; }
+    const cx = Math.round(w * 9525), cy = Math.round(h * 9525);
+    const grafico = `<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="${n}" name="${nombre}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${id}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic>`;
+    const aj = img.dataset.ajuste || 'linea';
+    if (aj !== 'linea'){
+      const EMU = 9525, alin = img.dataset.alin || 'centro';
+      let posH, posV = '<wp:positionV relativeFrom="paragraph"><wp:posOffset>0</wp:posOffset></wp:positionV>', ajuste;
+      if (aj === 'izq'){ posH = '<wp:positionH relativeFrom="column"><wp:align>left</wp:align></wp:positionH>'; ajuste = '<wp:wrapSquare wrapText="bothSides"/>'; }
+      else if (aj === 'der'){ posH = '<wp:positionH relativeFrom="column"><wp:align>right</wp:align></wp:positionH>'; ajuste = '<wp:wrapSquare wrapText="bothSides"/>'; }
+      else if (aj === 'bloque'){ posH = `<wp:positionH relativeFrom="column"><wp:align>${alin === 'izq' ? 'left' : alin === 'der' ? 'right' : 'center'}</wp:align></wp:positionH>`; ajuste = '<wp:wrapTopAndBottom/>'; }
+      else {
+        posH = `<wp:positionH relativeFrom="margin"><wp:posOffset>${Math.round((parseFloat(img.style.left) || 0) * EMU)}</wp:posOffset></wp:positionH>`;
+        posV = `<wp:positionV relativeFrom="paragraph"><wp:posOffset>${Math.round((+img.dataset.pdy || 0) * EMU)}</wp:posOffset></wp:positionV>`;
+        ajuste = '<wp:wrapNone/>';
+      }
+      return `<w:r><w:drawing><wp:anchor distT="57150" distB="57150" distL="114300" distR="114300" simplePos="0" relativeHeight="${251658240 + n}" behindDoc="${aj === 'detras' ? 1 : 0}" locked="0" layoutInCell="1" allowOverlap="1"><wp:simplePos x="0" y="0"/>${posH}${posV}<wp:extent cx="${cx}" cy="${cy}"/><wp:effectExtent l="0" t="0" r="0" b="0"/>${ajuste}<wp:docPr id="${n}" name="Imagen ${n}"/><wp:cNvGraphicFramePr/>${grafico}</wp:anchor></w:drawing></w:r>`;
+    }
+    return `<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="${n}" name="Imagen ${n}"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="${n}" name="${nombre}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${id}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>`;
+  }
+  parrafo(runs, ctx){
+    let p = '';
+    if (ctx.estilo) p += `<w:pStyle w:val="${ctx.estilo}"/>`;
+    if (ctx.num) p += `<w:numPr><w:ilvl w:val="${Math.min(ctx.num.nivel, 8)}"/><w:numId w:val="${ctx.num.id}"/></w:numPr>`;
+    if (ctx.f && ctx.f.pre) p += '<w:shd w:val="clear" w:color="auto" w:fill="F2F2F2"/><w:spacing w:after="0" w:line="240" w:lineRule="auto"/>';
+    if (ctx.ind && !ctx.num) p += `<w:ind w:left="${Math.round(ctx.ind)}"/>`;
+    if (ctx.align) p += `<w:jc w:val="${ctx.align}"/>`;
+    return `<w:p>${p ? '<w:pPr>' + p + '</w:pPr>' : ''}${runs}</w:p>`;
+  }
+  contenedor(nodo, ctx){
+    let out = '', buf = [];
+    const flush = () => {
+      if (!buf.length) return;
+      if (buf.every(n => n.nodeType === 3 && !n.nodeValue.trim()) && buf.length && !(ctx.f && ctx.f.pre)){ buf = []; return; }
+      const soloBr = buf.filter(n => !(n.nodeType === 3 && !n.nodeValue.trim()));
+      const runs = soloBr.length === 1 && soloBr[0].nodeName === 'BR' ? '' : buf.map(n => this.inline(n, ctx.f || {})).join('');
+      out += this.parrafo(runs, ctx); buf = [];
+    };
+    for (const c of nodo.childNodes){
+      if (c.nodeType === 1 && (BLOQUES.has(c.tagName.toLowerCase()) || c.classList.contains('salto-pagina'))){ flush(); out += this.bloque(c, ctx); }
+      else buf.push(c);
+    }
+    flush();
+    return out;
+  }
+  bloque(el, ctx){
+    const t = el.tagName.toLowerCase(), st = el.style;
+    if (el.classList.contains('salto-pagina')) return '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
+    const c2 = {...ctx, f: formatoDe(el, ctx.f || {})};
+    const al = (st.textAlign || el.getAttribute('align') || '').toLowerCase();
+    if (al) c2.align = {left:'left', start:'left', center:'center', right:'right', end:'right', justify:'both'}[al] || c2.align;
+    if (t === 'center') c2.align = 'center';
+    const ml = parseFloat(st.marginLeft) || parseFloat(st.paddingLeft) || 0;
+    if (ml && /px/.test(st.marginLeft || st.paddingLeft)) c2.ind = (c2.ind || 0) + ml * 15;
+    let out = '';
+    if (st.pageBreakBefore === 'always' || st.breakBefore === 'page') out += '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
+    if (/^h[1-6]$/.test(t)) { c2.estilo = 'Heading' + Math.min(+t[1], 3); out += this.contenedor(el, c2); }
+    else if (t === 'blockquote'){ if (!ml) c2.ind = (c2.ind || 0) + 720; out += this.contenedor(el, c2); }
+    else if (t === 'pre'){ c2.f = {...c2.f, font: 'Courier New', sz: c2.f.sz || 21, pre: true}; out += this.contenedor(el, c2); }
+    else if (t === 'ul' || t === 'ol'){
+      const nivel = ctx.nivel === undefined ? 0 : ctx.nivel + 1;
+      const id = t === 'ol' ? this.nuevaNumeracion(el.start || 1) : 1;
+      c2.nivel = nivel;
+      for (const li of el.childNodes){
+        if (li.nodeType === 1 && li.tagName === 'LI') out += this.contenedor(li, {...c2, num: {id, nivel}, f: formatoDe(li, c2.f)});
+        else if (li.nodeType === 1) out += this.bloque(li, c2);
+      }
+    }
+    else if (t === 'table') out += this.tabla(el, c2);
+    else if (t === 'hr') out += '<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="999999"/></w:pBdr></w:pPr></w:p>';
+    else { if (t !== 'p' && t !== 'li') delete c2.estilo; out += this.contenedor(el, c2); }
+    if (st.pageBreakAfter === 'always' || st.breakAfter === 'page') out += '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
+    return out;
+  }
+  nuevaNumeracion(inicio){ const id = this.nums.length + 2; this.nums.push({id, inicio}); return id; }
+  tabla(t, ctx){
+    const filas = [...t.querySelectorAll(':scope > tr, :scope > tbody > tr, :scope > thead > tr, :scope > tfoot > tr')];
+    if (!filas.length) return '';
+    const ncols = Math.max(1, ...filas.map(r => [...r.children].reduce((a, c) => a + (c.colSpan || 1), 0)));
+    const ancho = Math.floor(ANCHO_TWIPS / ncols);
+    const borde = v => `<w:${v} w:val="single" w:sz="4" w:space="0" w:color="999999"/>`;
+    let x = `<w:tbl><w:tblPr><w:tblW w:w="${ANCHO_TWIPS}" w:type="dxa"/><w:tblBorders>${['top','left','bottom','right','insideH','insideV'].map(borde).join('')}</w:tblBorders><w:tblLayout w:type="fixed"/><w:tblCellMar><w:left w:w="100" w:type="dxa"/><w:right w:w="100" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid>${`<w:gridCol w:w="${ancho}"/>`.repeat(ncols)}</w:tblGrid>`;
+    for (const r of filas){
+      x += '<w:tr>';
+      let usadas = 0;
+      for (const c of r.children){
+        const span = Math.min(c.colSpan || 1, ncols - usadas); if (span <= 0) break; usadas += span;
+        const bg = aHex(c.style.backgroundColor || c.getAttribute('bgcolor') || '');
+        const fc = c.tagName === 'TH' ? {b: true} : {};
+        let cont = this.contenedor(c, {f: fc, align: c.tagName === 'TH' ? 'center' : undefined});
+        if (!cont.endsWith('</w:p>') && !cont.endsWith('<w:p/>')) cont += '<w:p/>';
+        x += `<w:tc><w:tcPr><w:tcW w:w="${ancho * span}" w:type="dxa"/>${span > 1 ? `<w:gridSpan w:val="${span}"/>` : ''}${bg ? `<w:shd w:val="clear" w:color="auto" w:fill="${bg}"/>` : ''}</w:tcPr>${cont}</w:tc>`;
+      }
+      for (; usadas < ncols; usadas++) x += `<w:tc><w:tcPr><w:tcW w:w="${ancho}" w:type="dxa"/></w:tcPr><w:p/></w:tc>`;
+      x += '</w:tr>';
+    }
+    return x + '</w:tbl><w:p/>';
+  }
+  numeracionXml(){
+    const nivelesVineta = ['•','◦','▪'], formatos = ['decimal','lowerLetter','lowerRoman'];
+    const lvl = (i, fmt, texto) => `<w:lvl w:ilvl="${i}"><w:start w:val="1"/><w:numFmt w:val="${fmt}"/><w:lvlText w:val="${texto}"/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="${720 * (i + 1)}" w:hanging="360"/></w:pPr></w:lvl>`;
+    let a0 = '', a1 = '';
+    for (let i = 0; i < 9; i++){ a0 += lvl(i, 'bullet', nivelesVineta[i % 3]); a1 += lvl(i, formatos[i % 3], `%${i + 1}.`); }
+    let x = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:numbering ${W_NS}><w:abstractNum w:abstractNumId="0"><w:multiLevelType w:val="hybridMultilevel"/>${a0}</w:abstractNum><w:abstractNum w:abstractNumId="1"><w:multiLevelType w:val="hybridMultilevel"/>${a1}</w:abstractNum>${this.abstractTitulos()}<w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>`;
+    for (const n of this.nums) x += `<w:num w:numId="${n.id}"><w:abstractNumId w:val="1"/><w:lvlOverride w:ilvl="0"><w:startOverride w:val="${n.inicio}"/></w:lvlOverride></w:num>`;
+    if (numerarTitulos) x += '<w:num w:numId="99"><w:abstractNumId w:val="2"/></w:num>';
+    return x + '</w:numbering>';
+  }
+  abstractTitulos(){
+    if (!numerarTitulos) return '';
+    const textos = ['%1.', '%1.%2', '%1.%2.%3'];
+    let l = '';
+    for (let i = 0; i < 9; i++) l += `<w:lvl w:ilvl="${i}"><w:start w:val="1"/><w:numFmt w:val="decimal"/>${i < 3 ? `<w:pStyle w:val="Heading${i + 1}"/>` : ''}<w:suff w:val="space"/><w:lvlText w:val="${i < 3 ? textos[i] : textos[2]}"/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="0" w:firstLine="0"/></w:pPr></w:lvl>`;
+    return `<w:abstractNum w:abstractNumId="2"><w:multiLevelType w:val="multilevel"/>${l}</w:abstractNum>`;
+  }
+}
+function estilosXml(){
+  const titulo = n => {
+    const s = estilos['h' + n], sz = Math.round(s.size * 2), col = aHex(s.color || '');
+    const jc = {center:'center', right:'right', justify:'both'}[s.align];
+    const rpr = (s.font ? `<w:rFonts w:ascii="${xe(s.font)}" w:hAnsi="${xe(s.font)}" w:cs="${xe(s.font)}"/>` : '') + (s.bold ? '<w:b/><w:bCs/>' : '<w:b w:val="0"/><w:bCs w:val="0"/>') + (s.italic ? '<w:i/><w:iCs/>' : '') + (col ? `<w:color w:val="${col}"/>` : '') + `<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/>` + (s.underline ? '<w:u w:val="single"/>' : '');
+    return `<w:style w:type="paragraph" w:styleId="Heading${n}"><w:name w:val="heading ${n}"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:uiPriority w:val="9"/><w:qFormat/><w:pPr><w:keepNext/><w:keepLines/>${numerarTitulos ? `<w:numPr><w:ilvl w:val="${n - 1}"/><w:numId w:val="99"/></w:numPr>` : ''}<w:spacing w:before="240" w:after="120" w:line="276" w:lineRule="auto"/>${jc ? `<w:jc w:val="${jc}"/>` : ''}<w:outlineLvl w:val="${n - 1}"/></w:pPr><w:rPr>${rpr}</w:rPr></w:style>`;
+  };
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles ${W_NS}><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:eastAsia="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/><w:sz w:val="24"/><w:szCs w:val="24"/><w:lang w:val="es-ES" w:eastAsia="en-US" w:bidi="ar-SA"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="120" w:line="360" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/></w:style>${titulo(1)}${titulo(2)}${titulo(3)}</w:styles>`;
+}
+async function exportarDocx(){
+  try {
+    cargando(true, 'Generando Word…');
+    await cargarScript(CDN.jszip);
+    editor.querySelectorAll('img').forEach(i => { if (i.style.position === 'absolute'){ const b = bloqueRaiz(i); i.dataset.pdy = Math.round(i.offsetTop - (b && b !== i ? posY(b) : 0)); } });
+    const raiz = document.createElement('div'); raiz.innerHTML = limpioParaExportar();
+    editor.querySelectorAll('img[data-pdy]').forEach(i => delete i.dataset.pdy);
+    await Promise.all([...raiz.querySelectorAll('img')].map(i => i.decode ? i.decode().catch(() => {}) : null));
+    const w = new EscritorDocx();
+    let cuerpo = w.contenedor(raiz, {f: {}});
+    if (!cuerpo.endsWith('</w:p>')) cuerpo += '<w:p/>';
+    const documentoXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document ${W_NS} xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><w:body>${cuerpo}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1417" w:right="1247" w:bottom="1417" w:left="1247" w:header="709" w:footer="709" w:gutter="0"/></w:sectPr></w:body></w:document>`;
+    const R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/';
+    const relsDoc = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${R}styles" Target="styles.xml"/><Relationship Id="rId2" Type="${R}numbering" Target="numbering.xml"/>${w.rels.map(r => `<Relationship Id="${r.id}" Type="${R}${r.tipo}" Target="${xe(r.destino)}"${r.externo ? ' TargetMode="External"' : ''}/>`).join('')}</Relationships>`;
+    const mimes = {png:'image/png', jpeg:'image/jpeg', gif:'image/gif', bmp:'image/bmp'};
+    const tipos = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>${[...w.exts].map(e => `<Default Extension="${e}" ContentType="${mimes[e]}"/>`).join('')}<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>`;
+    const ahora = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+    const core = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>${xe(nombreDoc.value)}</dc:title><dcterms:created xsi:type="dcterms:W3CDTF">${ahora}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${ahora}</dcterms:modified></cp:coreProperties>`;
+    const zip = new JSZip();
+    zip.file('[Content_Types].xml', tipos);
+    zip.file('_rels/.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${R}officeDocument" Target="word/document.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>`);
+    zip.file('docProps/core.xml', core);
+    zip.file('word/document.xml', documentoXml);
+    zip.file('word/styles.xml', estilosXml());
+    zip.file('word/numbering.xml', w.numeracionXml());
+    zip.file('word/_rels/document.xml.rels', relsDoc);
+    w.media.forEach(m => zip.file('word/media/' + m.nombre, m.datos, {base64: true}));
+    const blob = await zip.generateAsync({type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', compression: 'DEFLATE'});
+    descargar(blob, nombreBase() + '.docx');
+  } catch(e){
+    console.error(e); alert('No se pudo generar el archivo Word.\n\n' + e.message);
+  } finally { cargando(false); }
+}
+
+/* ================= imágenes, arrastrar, pegar ================= */
+$('archivoImagen').addEventListener('change', e => {
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = () => { restaurarSeleccion(); insertarImagen(r.result); };
+  r.readAsDataURL(f);
+});
+['dragover','drop'].forEach(ev => document.addEventListener(ev, e => {
+  if (!e.dataTransfer || ![...e.dataTransfer.types].includes('Files')) return;
+  e.preventDefault();
+  if (ev === 'drop'){
+    const f = e.dataTransfer.files[0];
+    if (f && f.type.startsWith('image/') && (editor.contains(e.target) || documento.contains(e.target))){
+      const rg = rangoEnPunto(e.clientX, e.clientY);
+      if (rg && editor.contains(rg.startContainer)){ const s = getSelection(); s.removeAllRanges(); s.addRange(rg); rangoGuardado = rg.cloneRange(); }
+      const r = new FileReader(); r.onload = () => { restaurarSeleccion(); insertarImagen(r.result); }; r.readAsDataURL(f);
+    } else if (f) abrirArchivo(f);
+  }
+}));
+editor.addEventListener('paste', e => {
+  const img = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/'));
+  if (img){
+    e.preventDefault();
+    const r = new FileReader(); r.onload = () => insertarImagen(r.result); r.readAsDataURL(img.getAsFile());
+  }
+});
+
+
+/* ================= herramientas de imagen ================= */
+const AJUSTES = {linea:'En línea con el texto', izq:'Cuadrado a la izquierda', der:'Cuadrado a la derecha', bloque:'Arriba y abajo', detras:'Detrás del texto', delante:'Delante del texto'};
+const ANCHO_UTIL = 166 * MM;
+const marco = document.createElement('div'); marco.id = 'marcoImg';
+marco.innerHTML = ['nw','n','ne','e','se','s','sw','w'].map(a => `<div class="asa" data-a="${a}"></div>`).join('') + '<div class="medida"></div>';
+const barraImg = document.createElement('div'); barraImg.id = 'barraImg';
+barraImg.innerHTML = `
+  <select id="imgAjuste" title="Ajuste del texto">${Object.entries(AJUSTES).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>
+  <span class="sep"></span>
+  <button data-alin="izq" title="Alinear a la izquierda">⯇</button><button data-alin="centro" title="Centrar">≡</button><button data-alin="der" title="Alinear a la derecha">⯈</button>
+  <span class="sep"></span>
+  <input id="imgAncho" type="number" min="10" title="Ancho (px)"> × <input id="imgAlto" type="number" min="10" title="Alto (px)">
+  <button id="imgCandado" class="activo" title="Mantener proporción">🔒</button>
+  <span class="sep"></span>
+  <button id="imgRecortar" title="Recortar">✂ Recortar</button>
+  <button id="imgOriginal" title="Tamaño original">↺</button>
+  <button id="imgBorrar" title="Eliminar imagen">🗑</button>`;
+documento.append(marco, barraImg);
+barraImg.addEventListener('pointerdown', e => { if (e.pointerType !== 'mouse' && !['SELECT','INPUT','OPTION'].includes(e.target.tagName)) e.preventDefault(); });
+barraImg.addEventListener('mousedown', e => { if (!['SELECT','INPUT','OPTION'].includes(e.target.tagName)) e.preventDefault(); });
+
+let imgSel = null, proporcion = true;
+
+function rangoEnPunto(x, y){
+  if (document.caretRangeFromPoint) return document.caretRangeFromPoint(x, y);
+  if (document.caretPositionFromPoint){
+    const p = document.caretPositionFromPoint(x, y); if (!p) return null;
+    const r = document.createRange(); r.setStart(p.offsetNode, p.offset); r.collapse(true); return r;
+  }
+  return null;
+}
+function insertarImagen(src){
+  const i = new Image();
+  i.onload = () => {
+    const w = Math.round(Math.min(i.naturalWidth || 300, ANCHO_UTIL));
+    const antes = new Set(editor.querySelectorAll('img'));
+    restaurarSeleccion();
+    document.execCommand('insertHTML', false, `<img src="${src}" data-ajuste="linea" style="width:${w}px">`);
+    const nueva = [...editor.querySelectorAll('img')].find(x => !antes.has(x));
+    actualizar();
+    if (nueva) setTimeout(() => seleccionarImagen(nueva), 30);
+  };
+  i.onerror = () => aviso('No se pudo cargar la imagen');
+  i.src = src;
+}
+function ajusteDe(img){ return img.dataset.ajuste || (img.style.float === 'left' ? 'izq' : img.style.float === 'right' ? 'der' : img.style.position === 'absolute' ? 'delante' : img.style.display === 'block' ? 'bloque' : 'linea'); }
+function ponerAjuste(img, aj){
+  const r = img.getBoundingClientRect(), ed = editor.getBoundingClientRect();
+  const st = img.style;
+  ['float','display','margin','position','left','top','zIndex','verticalAlign'].forEach(p => st[p] = '');
+  img.dataset.ajuste = aj;
+  const alin = img.dataset.alin || 'centro';
+  if (aj === 'izq'){ st.float = 'left'; st.margin = '4px 16px 8px 0'; }
+  else if (aj === 'der'){ st.float = 'right'; st.margin = '4px 0 8px 16px'; }
+  else if (aj === 'bloque'){ st.display = 'block'; st.margin = alin === 'izq' ? '8px auto 8px 0' : alin === 'der' ? '8px 0 8px auto' : '8px auto'; }
+  else if (aj === 'detras' || aj === 'delante'){
+    st.position = 'absolute';
+    st.left = Math.round((r.left - ed.left) / escala) + 'px'; st.top = Math.round((r.top - ed.top) / escala) + 'px';
+    st.zIndex = aj === 'detras' ? '-1' : '3';
+    if (aj === 'detras') aviso('Imagen detrás del texto. Para volver a seleccionarla: Alt + clic sobre ella.', 5000);
+  }
+  actualizar(); colocarMarco();
+}
+function alinear(img, alin){
+  img.dataset.alin = alin;
+  const aj = ajusteDe(img);
+  if (aj === 'bloque') ponerAjuste(img, 'bloque');
+  else if (aj === 'linea'){
+    const b = img.closest('p,div:not(#editor),li,td,th,h1,h2,h3,blockquote');
+    if (b && editor.contains(b)) b.style.textAlign = alin === 'izq' ? '' : alin === 'der' ? 'right' : 'center';
+    actualizar();
+  } else if (aj === 'izq' || aj === 'der'){ ponerAjuste(img, alin === 'der' ? 'der' : 'izq'); }
+  else if (aj === 'detras' || aj === 'delante'){
+    const w = img.offsetWidth;
+    img.style.left = Math.round(alin === 'izq' ? 0 : alin === 'der' ? ANCHO_UTIL - w : (ANCHO_UTIL - w) / 2) + 'px';
+    actualizar();
+  }
+  colocarMarco();
+}
+function seleccionarImagen(img){
+  if (imgSel && imgSel !== img) imgSel.classList.remove('sel');
+  imgSel = img; img.classList.add('sel');
+  const s = getSelection(); s.removeAllRanges();
+  colocarMarco();
+}
+function deseleccionarImagen(){ if (imgSel){ imgSel.classList.remove('sel'); if (!imgSel.getAttribute('class')) imgSel.removeAttribute('class'); } imgSel = null; marco.classList.remove('visible'); barraImg.classList.remove('visible'); }
+function colocarMarco(){
+  if (!imgSel) return;
+  if (!imgSel.isConnected || !editor.contains(imgSel)) return deseleccionarImagen();
+  const r = imgSel.getBoundingClientRect(), d = documento.getBoundingClientRect();
+  const x = (r.left - d.left) / escala, y = (r.top - d.top) / escala, w = r.width / escala, h = r.height / escala;
+  Object.assign(marco.style, {left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px'});
+  marco.classList.add('visible'); barraImg.classList.add('visible');
+  marco.querySelector('.medida').textContent = Math.round(w) + ' × ' + Math.round(h) + ' px';
+  const bw = barraImg.offsetWidth, bh = barraImg.offsetHeight;
+  let bx = Math.min(Math.max(x + w / 2 - bw / 2, 4), documento.offsetWidth - bw - 4);
+  let by = y - bh - 12; if (by < 4) by = y + h + 32;
+  Object.assign(barraImg.style, {left: bx + 'px', top: by + 'px'});
+  const aj = ajusteDe(imgSel);
+  $('imgAjuste').value = aj;
+  barraImg.querySelectorAll('[data-alin]').forEach(b => b.classList.toggle('activo', (imgSel.dataset.alin || (aj === 'linea' ? 'izq' : 'centro')) === b.dataset.alin));
+  if (document.activeElement !== $('imgAncho')) $('imgAncho').value = Math.round(w);
+  if (document.activeElement !== $('imgAlto')) $('imgAlto').value = Math.round(h);
+}
+
+// Seleccionar (clic) y arrastrar para mover
+editor.addEventListener('dragstart', e => { if (e.target.tagName === 'IMG') e.preventDefault(); });
+editor.addEventListener('pointerdown', e => {
+  let img = e.target.tagName === 'IMG' ? e.target : null;
+  if (!img && e.altKey) img = document.elementsFromPoint(e.clientX, e.clientY).find(n => n.tagName === 'IMG' && editor.contains(n));
+  if (!img && imgSel){ const r = imgSel.getBoundingClientRect(); if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) img = imgSel; }
+  if (!img || !editor.contains(img) || formatoCopiado) return;
+  e.preventDefault();
+  const yaSel = imgSel === img;
+  seleccionarImagen(img);
+  if (e.pointerType === 'mouse' || yaSel) iniciarMovimiento(e, img);   // en táctil: primer toque selecciona, el siguiente arrastra
+
+}, true);
+document.addEventListener('pointerdown', e => {
+  if (!imgSel) return;
+  if (marco.contains(e.target) || barraImg.contains(e.target) || $('recorte').contains(e.target) || e.target === imgSel) return;
+  if (e.altKey && editor.contains(e.target)) return;
+  deseleccionarImagen();
+});
+function iniciarMovimiento(e, img){
+  const x0 = e.clientX, y0 = e.clientY, abs = img.style.position === 'absolute';
+  const l0 = parseFloat(img.style.left) || 0, t0 = parseFloat(img.style.top) || 0;
+  let moviendo = false, rango = null;
+  const cur = $('cursorSoltar');
+  const mover = ev => {
+    if (!moviendo && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 5) return;
+    if (!moviendo){ moviendo = true; if (!abs) img.classList.add('arrastrando'); }
+    if (abs){
+      img.style.left = Math.round(l0 + (ev.clientX - x0) / escala) + 'px';
+      img.style.top = Math.round(t0 + (ev.clientY - y0) / escala) + 'px';
+      colocarMarco();
+    } else {
+      rango = rangoEnPunto(ev.clientX, ev.clientY);
+      if (rango && editor.contains(rango.startContainer)){
+        let rc = rango.getClientRects()[0] || rango.getBoundingClientRect();
+        if (!rc || (!rc.height && rango.startContainer.nodeType === 1)){ const n = rango.startContainer.childNodes[rango.startOffset] || rango.startContainer; rc = (n.nodeType === 1 ? n : n.parentElement).getBoundingClientRect(); }
+        Object.assign(cur.style, {display: 'block', left: rc.left + 'px', top: rc.top + 'px', height: Math.max(rc.height, 18) + 'px'});
+      } else { rango = null; cur.style.display = 'none'; }
+    }
+  };
+  const soltar = () => {
+    document.removeEventListener('pointermove', mover); document.removeEventListener('pointerup', soltar); document.removeEventListener('pointercancel', soltar);
+    cur.style.display = 'none'; img.classList.remove('arrastrando');
+    if (!moviendo) return;
+    if (!abs && rango && editor.contains(rango.startContainer) && !img.contains(rango.startContainer)){
+      const padre = img.parentElement;
+      img.remove();
+      if (padre && padre !== editor && estaVacio(padre)) padre.innerHTML = '<br>';
+      let destino = rango;
+      if (destino.startContainer === editor){ const p = document.createElement('p'); editor.insertBefore(p, editor.childNodes[destino.startOffset] || null); p.appendChild(img); }
+      else destino.insertNode(img);
+    }
+    actualizar(); seleccionarImagen(img);
+  };
+  document.addEventListener('pointermove', mover); document.addEventListener('pointerup', soltar); document.addEventListener('pointercancel', soltar);
+}
+
+// Redimensionar con los tiradores
+marco.querySelectorAll('.asa').forEach(asa => asa.addEventListener('pointerdown', e => {
+  e.preventDefault(); e.stopPropagation();
+  const img = imgSel, a = asa.dataset.a;
+  const x0 = e.clientX, y0 = e.clientY, w0 = img.offsetWidth, h0 = img.offsetHeight, ratio = h0 / w0;
+  const l0 = parseFloat(img.style.left) || 0, t0 = parseFloat(img.style.top) || 0, abs = img.style.position === 'absolute';
+  const mover = ev => {
+    const dx = (ev.clientX - x0) / escala, dy = (ev.clientY - y0) / escala;
+    let w = w0, h = h0;
+    if (a.includes('e')) w = w0 + dx;
+    if (a.includes('w')) w = w0 - dx;
+    if (a.includes('s')) h = h0 + dy;
+    if (a.includes('n')) h = h0 - dy;
+    const esquina = a.length === 2;
+    if (esquina && !ev.shiftKey) h = w * ratio;
+    w = Math.max(16, Math.min(w, abs ? 3000 : ANCHO_UTIL)); h = Math.max(16, esquina && !ev.shiftKey ? w * ratio : h);
+    img.style.width = Math.round(w) + 'px'; img.style.height = Math.round(h) + 'px';
+    if (abs){ if (a.includes('w')) img.style.left = Math.round(l0 + w0 - w) + 'px'; if (a.includes('n')) img.style.top = Math.round(t0 + h0 - h) + 'px'; }
+    colocarMarco();
+  };
+  const soltar = () => { document.removeEventListener('pointermove', mover); document.removeEventListener('pointerup', soltar); document.removeEventListener('pointercancel', soltar); actualizar(); };
+  document.addEventListener('pointermove', mover); document.addEventListener('pointerup', soltar); document.addEventListener('pointercancel', soltar);
+}));
+
+// Barra de la imagen
+$('imgAjuste').addEventListener('change', e => { if (imgSel) ponerAjuste(imgSel, e.target.value); });
+barraImg.querySelectorAll('[data-alin]').forEach(b => b.addEventListener('click', () => imgSel && alinear(imgSel, b.dataset.alin)));
+$('imgCandado').addEventListener('click', () => { proporcion = !proporcion; $('imgCandado').classList.toggle('activo', proporcion); $('imgCandado').textContent = proporcion ? '🔒' : '🔓'; });
+function cambiarMedida(cual){
+  if (!imgSel) return;
+  const w0 = imgSel.offsetWidth, h0 = imgSel.offsetHeight;
+  let w = +$('imgAncho').value || w0, h = +$('imgAlto').value || h0;
+  if (proporcion){ if (cual === 'w') h = w * h0 / w0; else w = h * w0 / h0; }
+  if (imgSel.style.position !== 'absolute' && w > ANCHO_UTIL){ if (proporcion) h = h * ANCHO_UTIL / w; w = ANCHO_UTIL; }
+  imgSel.style.width = Math.round(w) + 'px'; imgSel.style.height = Math.round(h) + 'px';
+  actualizar(); colocarMarco();
+}
+$('imgAncho').addEventListener('change', () => cambiarMedida('w'));
+$('imgAlto').addEventListener('change', () => cambiarMedida('h'));
+[$('imgAncho'), $('imgAlto')].forEach(i => i.addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); i.blur(); } e.stopPropagation(); }));
+$('imgOriginal').addEventListener('click', () => {
+  if (!imgSel) return;
+  const w = Math.min(imgSel.naturalWidth, imgSel.style.position === 'absolute' ? 3000 : ANCHO_UTIL);
+  imgSel.style.width = Math.round(w) + 'px'; imgSel.style.height = Math.round(w * imgSel.naturalHeight / imgSel.naturalWidth) + 'px';
+  actualizar(); colocarMarco();
+});
+$('imgBorrar').addEventListener('click', borrarImagen);
+function borrarImagen(){
+  if (!imgSel) return;
+  const padre = imgSel.parentElement; imgSel.remove();
+  if (padre && padre !== editor && estaVacio(padre)) padre.innerHTML = '<br>';
+  deseleccionarImagen(); actualizar(); editor.focus();
+}
+document.addEventListener('keydown', e => {
+  if (!imgSel || $('recorte').classList.contains('visible') || ['INPUT','SELECT','TEXTAREA'].includes(document.activeElement.tagName)) return;
+  if (e.key === 'Delete' || e.key === 'Backspace'){ e.preventDefault(); borrarImagen(); }
+  else if (e.key === 'Escape') deseleccionarImagen();
+  else if (imgSel.style.position === 'absolute' && e.key.startsWith('Arrow')){
+    e.preventDefault(); const p = e.shiftKey ? 10 : 1;
+    if (e.key === 'ArrowLeft') imgSel.style.left = (parseFloat(imgSel.style.left) - p) + 'px';
+    if (e.key === 'ArrowRight') imgSel.style.left = (parseFloat(imgSel.style.left) + p) + 'px';
+    if (e.key === 'ArrowUp') imgSel.style.top = (parseFloat(imgSel.style.top) - p) + 'px';
+    if (e.key === 'ArrowDown') imgSel.style.top = (parseFloat(imgSel.style.top) + p) + 'px';
+    colocarMarco(); actualizar();
+  }
+}, true);
+window.addEventListener('resize', colocarMarco);
+
+// Recortar
+let recorteImg = null, caja = null;
+$('imgRecortar').addEventListener('click', () => {
+  if (!imgSel) return;
+  const src = imgSel.getAttribute('src') || '';
+  if (!src.startsWith('data:')) { aviso('Solo se pueden recortar imágenes insertadas desde tu equipo', 4000); return; }
+  recorteImg = imgSel;
+  const original = imgSel.dataset.original || src;
+  const im = $('recorteImg');
+  im.onload = () => {
+    const nw = im.naturalWidth, nh = im.naturalHeight;
+    const prev = (recorteImg.dataset.recorte || '').split(',').map(Number);
+    caja = prev.length === 4 && prev.every(n => !isNaN(n)) ? {x: prev[0], y: prev[1], w: prev[2], h: prev[3]} : {x: 0, y: 0, w: nw, h: nh};
+    dibujarCaja();
+  };
+  im.src = original;
+  $('recorte').classList.add('visible');
+});
+function dibujarCaja(){
+  const im = $('recorteImg'), k = im.clientWidth / im.naturalWidth;
+  Object.assign($('recorteCaja').style, {left: caja.x * k + 'px', top: caja.y * k + 'px', width: caja.w * k + 'px', height: caja.h * k + 'px'});
+}
+$('recorteCaja').addEventListener('pointerdown', e => {
+  e.preventDefault();
+  const im = $('recorteImg'), k = im.clientWidth / im.naturalWidth, nw = im.naturalWidth, nh = im.naturalHeight;
+  const a = e.target.dataset.a || 'mover', x0 = e.clientX, y0 = e.clientY, c0 = {...caja};
+  const mover = ev => {
+    const dx = (ev.clientX - x0) / k, dy = (ev.clientY - y0) / k; let c = {...c0};
+    if (a === 'mover'){ c.x = Math.min(Math.max(0, c0.x + dx), nw - c0.w); c.y = Math.min(Math.max(0, c0.y + dy), nh - c0.h); }
+    else {
+      if (a.includes('w')){ c.x = Math.min(Math.max(0, c0.x + dx), c0.x + c0.w - 10); c.w = c0.x + c0.w - c.x; }
+      if (a.includes('e')) c.w = Math.min(Math.max(10, c0.w + dx), nw - c0.x);
+      if (a.includes('n')){ c.y = Math.min(Math.max(0, c0.y + dy), c0.y + c0.h - 10); c.h = c0.y + c0.h - c.y; }
+      if (a.includes('s')) c.h = Math.min(Math.max(10, c0.h + dy), nh - c0.y);
+    }
+    caja = c; dibujarCaja();
+  };
+  const soltar = () => { document.removeEventListener('pointermove', mover); document.removeEventListener('pointerup', soltar); document.removeEventListener('pointercancel', soltar); };
+  document.addEventListener('pointermove', mover); document.addEventListener('pointerup', soltar); document.addEventListener('pointercancel', soltar);
+});
+function cerrarRecorte(){ $('recorte').classList.remove('visible'); recorteImg = null; }
+$('recorteCancelar').addEventListener('click', cerrarRecorte);
+$('recorteQuitar').addEventListener('click', () => {
+  const im = $('recorteImg'); caja = {x: 0, y: 0, w: im.naturalWidth, h: im.naturalHeight}; dibujarCaja();
+});
+$('recorteAplicar').addEventListener('click', () => {
+  const img = recorteImg, im = $('recorteImg'); if (!img) return cerrarRecorte();
+  const c = {x: Math.round(caja.x), y: Math.round(caja.y), w: Math.round(caja.w), h: Math.round(caja.h)};
+  const entero = c.x === 0 && c.y === 0 && c.w === im.naturalWidth && c.h === im.naturalHeight;
+  const original = img.dataset.original || img.getAttribute('src');
+  const escalaVista = img.offsetWidth / img.naturalWidth;     // conservar el tamaño en pantalla proporcional
+  let nuevo = original;
+  if (!entero){
+    const cv = document.createElement('canvas'); cv.width = c.w; cv.height = c.h;
+    cv.getContext('2d').drawImage(im, c.x, c.y, c.w, c.h, 0, 0, c.w, c.h);
+    nuevo = /^data:image\/jpe?g/i.test(original) ? cv.toDataURL('image/jpeg', 0.92) : cv.toDataURL('image/png');
+    img.dataset.original = original; img.dataset.recorte = [c.x, c.y, c.w, c.h].join(',');
+  } else { delete img.dataset.original; delete img.dataset.recorte; }
+  const w = Math.round((entero ? im.naturalWidth : c.w) * escalaVista);
+  img.onload = () => { img.onload = null; img.style.width = Math.min(w, img.style.position === 'absolute' ? 3000 : ANCHO_UTIL) + 'px'; img.style.height = ''; actualizar(); colocarMarco(); };
+  img.src = nuevo;
+  cerrarRecorte();
+});
+
+/* ================= buscar y reemplazar ================= */
+let coincidencias = [], indiceBusq = -1;
+function abrirBuscador(){
+  $('buscador').classList.add('visible');
+  const sel = window.getSelection().toString();
+  if (sel && sel.length < 100) $('txtBuscar').value = sel;
+  $('txtBuscar').focus(); $('txtBuscar').select(); resaltar();
+}
+function quitarResaltado(){
+  editor.querySelectorAll('mark.encontrado').forEach(m => { const p = m.parentNode; m.replaceWith(...m.childNodes); p.normalize(); });
+  coincidencias = []; indiceBusq = -1;
+}
+function resaltar(){
+  quitarResaltado();
+  const q = $('txtBuscar').value;
+  if (!q){ $('infoBuscar').textContent = ''; return; }
+  const qMin = q.toLowerCase();
+  const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+  const nodos = []; while (walker.nextNode()) nodos.push(walker.currentNode);
+  for (const nodo of nodos){
+    let pos, actual = nodo;
+    while ((pos = actual.nodeValue.toLowerCase().indexOf(qMin)) !== -1){
+      const m = actual.splitText(pos); const resto = m.splitText(q.length);
+      const mark = document.createElement('mark'); mark.className = 'encontrado';
+      m.replaceWith(mark); mark.appendChild(m);
+      coincidencias.push(mark); actual = resto;
+    }
+  }
+  $('infoBuscar').textContent = coincidencias.length ? coincidencias.length + ' coincidencias' : 'Sin coincidencias';
+  if (coincidencias.length) irA(0);
+}
+function irA(i){
+  coincidencias.forEach(m => m.classList.remove('actual'));
+  indiceBusq = (i + coincidencias.length) % coincidencias.length;
+  const m = coincidencias[indiceBusq]; m.classList.add('actual');
+  m.scrollIntoView({block:'center', behavior:'smooth'});
+  $('infoBuscar').textContent = `${indiceBusq + 1} de ${coincidencias.length}`;
+}
+$('txtBuscar').addEventListener('input', resaltar);
+$('txtBuscar').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); if (coincidencias.length) irA(indiceBusq + 1); } });
+$('btnSiguiente').onclick = () => coincidencias.length && irA(indiceBusq + 1);
+$('btnReemplazar').onclick = () => {
+  if (indiceBusq < 0) return;
+  coincidencias[indiceBusq].replaceWith(document.createTextNode($('txtReemplazar').value));
+  coincidencias.splice(indiceBusq, 1);
+  if (coincidencias.length) irA(indiceBusq); else $('infoBuscar').textContent = 'Sin más coincidencias';
+  actualizar();
+};
+$('btnReemplazarTodo').onclick = () => {
+  const n = coincidencias.length;
+  coincidencias.forEach(m => m.replaceWith(document.createTextNode($('txtReemplazar').value)));
+  coincidencias = []; indiceBusq = -1; editor.normalize();
+  $('infoBuscar').textContent = n + ' reemplazos'; actualizar();
+};
+function cerrarBuscador(){ quitarResaltado(); $('buscador').classList.remove('visible'); editor.focus(); }
+$('btnCerrarBuscar').onclick = cerrarBuscador;
+
+/* ================= zoom ================= */
+function ponerZoom(v){
+  escala = v / 100;
+  $('zoom').value = v; $('zoomValor').textContent = v + '%';
+  documento.style.transform = `scale(${escala})`;
+  ajustarEscala(); colocarMarco();
+}
+$('zoom').addEventListener('input', e => ponerZoom(+e.target.value));
+
+/* ================= contadores, índice, autoguardado ================= */
+let tGuardar, tIndice;
+function actualizar(){
+  paginarPronto();
+  clearTimeout(tIndice); tIndice = setTimeout(actualizarIndice, 250);
+  const t = editor.innerText.trim();
+  const palabras = t ? t.split(/\s+/).length : 0;
+  $('cuentaPalabras').textContent = palabras + (palabras === 1 ? ' palabra' : ' palabras');
+  $('cuentaCaracteres').textContent = editor.innerText.replace(/\n/g,'').length + ' caracteres';
+  clearTimeout(tGuardar);
+  $('estadoGuardado').textContent = 'Guardando…';
+  tGuardar = setTimeout(() => {
+    try {
+      localStorage.setItem('editor-contenido', limpioParaExportar(false, true));
+      localStorage.setItem('editor-nombre', nombreDoc.value);
+      $('estadoGuardado').textContent = 'Guardado en el navegador ' + new Date().toLocaleTimeString('es-ES', {hour:'2-digit', minute:'2-digit'});
+    } catch(e){ $('estadoGuardado').textContent = 'Sin guardado automático (documento muy grande)'; }
+  }, 700);
+}
+editor.addEventListener('input', e => { if (e.inputType === 'insertFromPaste' || e.inputType === 'insertFromDrop') limpiarTitulos(); actualizar(); });
+nombreDoc.addEventListener('input', actualizar);
+
+/* ================= teclado ================= */
+document.addEventListener('keydown', e => {
+  const ctrl = e.ctrlKey || e.metaKey;
+  if (e.key === 'Escape'){
+    if (formatoCopiado) return terminarBrocha();
+    if ($('buscador').classList.contains('visible')) return cerrarBuscador();
+  }
+  if (!ctrl) return;
+  const k = e.key.toLowerCase();
+  if (k === 's'){ e.preventDefault(); if (window.__mytextGuardarAtajo) window.__mytextGuardarAtajo(e.shiftKey); else exportarDocx(); }
+  else if (k === 'o'){ e.preventDefault(); acciones.abrir(); }
+  else if (k === 'f' || k === 'h'){ e.preventDefault(); abrirBuscador(); }
+  else if (k === 'k'){ e.preventDefault(); acciones.enlace(); }
+  else if (k === 'p'){ e.preventDefault(); window.print(); }
+  else if (k === 'n' && e.altKey){ e.preventDefault(); acciones.nuevo(); }
+  else if (k === 'c' && e.shiftKey){ e.preventDefault(); empezarBrocha(false); }
+  else if (k === 'enter' && document.activeElement === editor){ e.preventDefault(); insertarSalto(); }
+});
+editor.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey){
+    const m = {b:'bold', i:'italic', u:'underline'}[e.key.toLowerCase()];
+    if (m && tituloEnSeleccion()){ e.preventDefault(); cmd(m); return; }
+  }
+  if (e.key === 'Tab'){
+    e.preventDefault();
+    const enLista = document.queryCommandState('insertUnorderedList') || document.queryCommandState('insertOrderedList');
+    if (enLista) cmd(e.shiftKey ? 'outdent' : 'indent');
+    else if (!e.shiftKey) cmd('insertHTML', '&emsp;');
+  }
+});
+
+
+/* ================= móvil: vista y ajuste al ancho ================= */
+function esMovil(){ return window.matchMedia('(max-width: 820px)').matches; }
+function esTactil(){ return window.matchMedia('(pointer: coarse)').matches; }
+let zoomManual = false;
+function ponerVista(movil, guardar){
+  document.body.classList.toggle('vista-movil', movil);
+  $('txtVista').textContent = 'Vista: ' + (movil ? 'móvil (cambiar a páginas)' : 'páginas (cambiar a móvil)');
+  if (guardar) guardarPref('editor-vista', movil ? 'movil' : 'paginas');
+  if (movil){ escala = 1; documento.style.transform = ''; }
+  else { zoomManual = false; ajustarAncho(); }
+  paginar(); colocarMarco();
+}
+function ajustarAncho(){
+  if (document.body.classList.contains('vista-movil') || zoomManual) return;
+  const disp = $('zona').clientWidth - (esMovil() ? 12 : 40);
+  const ancho = 210 * MM;
+  if (disp < ancho) ponerZoom(Math.max(25, Math.floor(disp / ancho * 100)));
+  else if (escala < 1 && esMovil() === false) ponerZoom(100);
+}
+$('zoom').addEventListener('input', () => { zoomManual = true; });
+window.addEventListener('resize', () => { clearTimeout(ajustarAncho.t); ajustarAncho.t = setTimeout(() => { ajustarAncho(); paginarPronto(); }, 120); });
+$('fondoIndice').addEventListener('click', () => { $('indice').classList.remove('movil-abierto'); $('fondoIndice').classList.remove('visible'); });
+
+
+/* ================= programa de escritorio (MyText) ================= */
+if (window.mytext) (function(){
+  const M = window.mytext;
+  document.body.classList.add('escritorio');
+  Object.assign(CDN, M.info.vendor);                 // librerías incluidas en el programa (sin internet)
+  const ESCRIBIBLES = {docx:'guardar-docx', html:'guardar-html', htm:'guardar-html', txt:'guardar-txt', md:'guardar-md', markdown:'guardar-md'};
+  let ruta = null, destinoDirecto = null, esperando = null, silencio = 0;
+  window.__mytextModificado = false;
+
+  const nombreDe = r => r.split(/[\\/]/).pop();
+  const extDe = r => (r.split('.').pop() || '').toLowerCase();
+  function titulo(){ M.titulo((window.__mytextModificado ? '● ' : '') + (ruta ? nombreDe(ruta) : (nombreDoc.value || 'Documento sin título')) + ' — MyText'); }
+  function ponerModificado(v){ window.__mytextModificado = v; titulo(); guardarEstado(); }
+  function guardarEstado(){ try { localStorage.setItem('mytext-estado', JSON.stringify({ruta, modificado: window.__mytextModificado})); } catch(e){} }
+  function fijarRuta(r){ ruta = r; if (r) nombreDoc.value = nombreDe(r).replace(/\.[^.]+$/, ''); titulo(); guardarEstado(); }
+
+  // Cualquier cambio en el contenido marca el documento como modificado
+  const actualizarOriginal = actualizar;
+  actualizar = function(){ actualizarOriginal(); if (!silencio && !window.__mytextModificado) ponerModificado(true); };
+  nombreDoc.addEventListener('input', titulo);
+
+  // Las exportaciones escriben en disco en vez de descargar
+  descargar = async function(contenido, nombre){
+    const blob = contenido instanceof Blob ? contenido : new Blob([contenido]);
+    const datos = new Uint8Array(await blob.arrayBuffer());
+    let r;
+    if (destinoDirecto){ r = await M.guardar(destinoDirecto, datos); destinoDirecto = null; }
+    else r = await M.guardarComo(nombre, datos);
+    const ok = !!r;
+    if (ok){
+      const ext = extDe(r);
+      if (ESCRIBIBLES[ext]) fijarRuta(r);   // a partir de ahora "Guardar" escribe en ese archivo
+      ponerModificado(false);
+      aviso('Guardado: ' + nombreDe(r));
+    }
+    if (esperando){ esperando(ok); esperando = null; }
+    return ok;
+  };
+  function guardarConFormato(accion, directo){
+    return new Promise(res => {
+      destinoDirecto = directo || null;
+      esperando = res;
+      setTimeout(() => { if (esperando === res){ esperando = null; destinoDirecto = null; res(false); } }, 120000);
+      Promise.resolve(acciones[accion]()).catch(() => { if (esperando === res){ esperando = null; res(false); } });
+    });
+  }
+  const tieneFormato = () => !!editor.querySelector('b,strong,i,em,u,s,span[style],font,img,table,h1,h2,h3,ul,ol,a,blockquote');
+  async function guardar(){
+    const ext = ruta ? extDe(ruta) : null;
+    if (ruta && ESCRIBIBLES[ext]){
+      if (ext === 'txt' && tieneFormato() && confirm('Un archivo .txt no guarda negritas, colores, títulos ni imágenes.\n\n¿Guardar como documento de Word (.docx) para no perder el formato?\n\n(Cancelar = guardar igualmente como .txt)'))
+        return guardarConFormato('guardar-docx');
+      return guardarConFormato(ESCRIBIBLES[ext], ruta);
+    }
+    return guardarConFormato('guardar-docx');   // documento nuevo, o venía de PDF/RTF/ODT
+  }
+  function guardarComo(){ return guardarConFormato('guardar-docx'); }
+  window.__mytextGuardar = guardar;
+  window.__mytextGuardarAtajo = shift => shift ? guardarComo() : guardar();
+
+  // PDF con el motor de impresión del programa (texto real, no imagen)
+  acciones['guardar-pdf'] = async () => { const r = await M.pdf(nombreBase() + '.pdf'); if (r) aviso('PDF guardado: ' + nombreDe(r)); };
+
+  // Abrir y nuevo
+  const descartarCambios = () => !window.__mytextModificado || confirm('Hay cambios sin guardar. ¿Descartarlos?');
+  acciones.abrir = () => { if (descartarCambios()) M.abrir(); };
+  acciones.nuevo = () => {
+    if (!descartarCambios()) return;
+    silencio++; editor.innerHTML = ''; nombreDoc.value = 'Documento sin título'; actualizar(); silencio--;
+    ruta = null; ponerModificado(false); editor.focus();
+  };
+  // Arrastrar un archivo a la ventana: se abre con su ruta, para que "Guardar" escriba en él
+  const abrirArchivoOriginal = abrirArchivo;
+  abrirArchivo = async function(file, sinConfirmar){
+    if (!sinConfirmar){
+      const r = M.rutaDe(file);
+      if (r){ if (descartarCambios()) M.abrirRuta(r); return false; }
+      if (!descartarCambios()) return false;
+      silencio++; const ok = await abrirArchivoOriginal(file, true); silencio--;
+      if (ok){ ruta = null; ponerModificado(true); }
+      return ok;
+    }
+    return abrirArchivoOriginal(file, true);
+  };
+  M.alAbrirArchivo(async d => {
+    if (window.__mytextModificado && !confirm('Hay cambios sin guardar en el documento actual. ¿Descartarlos y abrir "' + d.nombre + '"?')) return;
+    const file = new File([d.datos], d.nombre);
+    silencio++;
+    const ok = await abrirArchivoOriginal(file, true);
+    silencio--;
+    if (ok){ ruta = d.ruta; titulo(); ponerModificado(false); nombreDoc.value = d.nombre.replace(/\.[^.]+$/, ''); }
+  });
+
+  // Menú Archivo: Guardar, Guardar como, Recientes
+  const opcArchivo = document.querySelector('.desplegable .opciones');
+  opcArchivo.insertAdjacentHTML('afterbegin', `
+    <button id="mtNuevo">Nuevo <kbd>Ctrl+Alt+N</kbd></button>
+    <button id="mtAbrir">Abrir… <kbd>Ctrl+O</kbd></button>
+    <div id="listaRecientes"></div>
+    <hr>
+    <button id="mtGuardar">Guardar <kbd>Ctrl+S</kbd></button>
+    <button id="mtGuardarComo">Guardar como… <kbd>Ctrl+Mayús+S</kbd></button>
+    <hr>`);
+  // quitar los Nuevo/Abrir originales (ya están arriba) y el atajo duplicado de Word
+  opcArchivo.querySelectorAll('[data-accion="nuevo"],[data-accion="abrir"]').forEach(b => b.remove());
+  const btnDocx = opcArchivo.querySelector('[data-accion="guardar-docx"] kbd'); if (btnDocx) btnDocx.remove();
+  opcArchivo.querySelectorAll('[data-accion^="guardar-"]').forEach(b => { b.childNodes[0].nodeValue = b.childNodes[0].nodeValue.replace('Guardar como', 'Exportar a'); });
+  const clic = (id, fn) => { const b = $(id); b.addEventListener('mousedown', e => e.preventDefault()); b.addEventListener('click', fn); };
+  clic('mtNuevo', () => acciones.nuevo());
+  clic('mtAbrir', () => acciones.abrir());
+  clic('mtGuardar', () => guardar());
+  clic('mtGuardarComo', () => guardarComo());
+  // Las exportaciones del menú siempre preguntan dónde guardar
+  opcArchivo.querySelectorAll('[data-accion^="guardar-"]').forEach(b => b.addEventListener('click', () => { destinoDirecto = null; }, true));
+
+  document.querySelector('.desplegable > button').addEventListener('click', async () => {
+    const lista = await M.recientes();
+    const cont = $('listaRecientes');
+    cont.innerHTML = lista.length ? '<div class="titulo-rec">Recientes</div>' : '';
+    lista.slice(0, 6).forEach(r => {
+      const b = document.createElement('button');
+      b.innerHTML = `<span>${escapar(nombreDe(r))}</span>`; b.title = r;
+      b.addEventListener('mousedown', e => e.preventDefault());
+      b.addEventListener('click', () => { if (descartarCambios()) M.abrirRuta(r); });
+      cont.appendChild(b);
+    });
+  });
+
+  // Menú Ver: actualizaciones y versión
+  const opcVer = [...document.querySelectorAll('.desplegable')].find(d => d.querySelector(':scope > button').textContent.trim() === 'Ver').querySelector('.opciones');
+  opcVer.insertAdjacentHTML('beforeend', `<hr><button id="mtBuscarAct">Buscar actualizaciones</button><button id="mtAcerca">Acerca de MyText</button>`);
+  clic('mtBuscarAct', () => buscarActualizaciones(false));
+  clic('mtAcerca', () => alert(`MyText\n\nPrograma: versión ${M.info.versionPrograma}\nEditor: versión ${M.info.versionEditor}`));
+
+  // Aviso de actualización
+  const banner = $('bannerAct');
+  function mostrarBanner(r){
+    let html = '';
+    if (r.programa) html = `🎉 Hay una nueva versión del programa (${r.programa}). <button class="prim" id="mtActProg">Descargar e instalar</button>`;
+    else if (r.editorNecesitaPrograma) html = `Hay una nueva versión del editor (${r.editorNecesitaPrograma}), pero necesita una versión más nueva del programa. Aún no está publicada.`;
+    else if (r.editor) html = `✨ Hay una nueva versión del editor (${r.editor}). <button class="prim" id="mtActEd">Actualizar ahora</button>`;
+    if (!html) return;
+    banner.innerHTML = html + '<button class="sec" id="mtLuego">Más tarde</button><button class="cerrar" id="mtCerrarBanner">✕</button>';
+    banner.classList.add('visible');
+    const cerrar = () => banner.classList.remove('visible');
+    $('mtLuego').onclick = cerrar; $('mtCerrarBanner').onclick = cerrar;
+    if ($('mtActEd')) $('mtActEd').onclick = actualizarEditor;
+    if ($('mtActProg')) $('mtActProg').onclick = async () => {
+      banner.innerHTML = 'Descargando la actualización… <b id="mtProg">0%</b>';
+      const res = await M.actualizarPrograma();
+      if (!res.ok){ banner.innerHTML = 'No se pudo descargar: ' + escapar(res.error || '') + ' <button class="cerrar" id="mtCerrarBanner">✕</button>'; $('mtCerrarBanner').onclick = cerrar; }
+    };
+  }
+  M.alProgreso(p => { const e = $('mtProg'); if (e) e.textContent = p + '%'; });
+  async function actualizarEditor(){
+    guardarAhora();
+    banner.innerHTML = 'Actualizando el editor…';
+    const res = await M.actualizarEditor();
+    if (!res.ok){ banner.innerHTML = 'No se pudo actualizar: ' + escapar(res.error || '') + ' <button class="cerrar" id="mtCerrarBanner">✕</button>'; $('mtCerrarBanner').onclick = () => banner.classList.remove('visible'); }
+  }
+  async function buscarActualizaciones(silencioso){
+    if (!silencioso) aviso('Buscando actualizaciones…');
+    const r = await M.buscarActualizaciones();
+    if (r.programa || r.editor || r.editorNecesitaPrograma) mostrarBanner(r);
+    else if (!silencioso) aviso(r.error ? r.error : `Tienes la última versión (programa ${M.info.versionPrograma}, editor ${M.info.versionEditor})`, 4000);
+  }
+  M.alHayActualizacion(mostrarBanner);
+
+  // Guardar el estado al instante (antes de recargar el editor actualizado)
+  function guardarAhora(){
+    try {
+      localStorage.setItem('editor-contenido', limpioParaExportar(false, true));
+      localStorage.setItem('editor-nombre', nombreDoc.value);
+    } catch(e){}
+    guardarEstado();
+  }
+
+  // Al arrancar: recuperar el documento de la última sesión
+  try {
+    const est = JSON.parse(localStorage.getItem('mytext-estado') || 'null');
+    if (est){ ruta = est.ruta || null; window.__mytextModificado = !!est.modificado; }
+  } catch(e){}
+  silencio++; setTimeout(() => { silencio--; titulo(); }, 0);   // el arranque no cuenta como cambio
+  titulo();
+})();
+
+/* ================= inicio ================= */
+try { document.execCommand('styleWithCSS', false, true); document.execCommand('defaultParagraphSeparator', false, 'p'); } catch(e){}
+try {
+  if (localStorage.getItem('editor-oscuro')) document.body.classList.add('oscuro');
+  if (localStorage.getItem('editor-indice') === '0') $('indice').classList.add('oculto');
+  if (localStorage.getItem('editor-corrector') === '0'){ editor.spellcheck = false; $('txtCorrector').textContent = 'Corrector ortográfico: desactivado'; }
+  const guardado = localStorage.getItem('editor-contenido');
+  if (guardado){ editor.innerHTML = guardado; nombreDoc.value = localStorage.getItem('editor-nombre') || nombreDoc.value; }
+} catch(e){}
+aplicarEstilos(false);
+normalizarSaltos();
+adoptarFormatoTitulos();
+limpiarTitulos();
+actualizar();
+actualizarIndice();
+let vistaPref = null; try { vistaPref = localStorage.getItem('editor-vista'); } catch(e){}
+ponerVista(vistaPref ? vistaPref === 'movil' : esMovil(), false);
+if (!esTactil()) editor.focus();
+</script>
+</body>
+</html>
