@@ -1,0 +1,32 @@
+name: Probar guardado en Windows
+
+# Abre el programa de verdad en Windows y comprueba que guardar funciona en todos los formatos
+on:
+  push:
+    branches: [main, 'prueba-**']
+  workflow_dispatch:
+
+jobs:
+  probar:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Instalar dependencias
+        run: |
+          npm install --omit=optional
+          npm install --no-save playwright@1.49.1
+
+      - name: Probar abrir, cambiar, guardar y volver a abrir
+        run: node test/probar-guardado.js
+
+      - name: Guardar capturas y resultados
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resultados-prueba
+          path: capturas-prueba
