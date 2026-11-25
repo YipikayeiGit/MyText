@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
 <title>MyText</title>
-<meta name="mytext-version" content="1.0.7">
+<meta name="mytext-version" content="1.0.8">
 <style>
   :root{
     --bg:#e6e8ec; --bar:#ffffff; --line:#d5d9e0; --ink:#1f2430; --muted:#6b7280;
@@ -2812,23 +2812,37 @@ window.__visorPdf = visor;
 const vp$ = $('vpPaginas');
 const DPR = () => Math.min(window.devicePixelRatio || 1, 2);
 
+// Ediciones guardadas por MyText dentro del PDF: permiten volver a editar el texto ya cambiado
+async function leerEdicionesPdf(pdf){
+  try {
+    const md = await pdf.getMetadata();
+    const raw = md && md.info && md.info.Custom && md.info.Custom.MyTextEdiciones;
+    const v = raw ? JSON.parse(raw) : [];
+    return Array.isArray(v) ? v : [];
+  } catch(e){ return []; }
+}
+async function cargarPaginasPdf(bytes){
+  const pdf = await pdfjsLib.getDocument({data: bytes.slice()}).promise;
+  const paginas = [];
+  for (let i = 1; i <= pdf.numPages; i++){
+    const page = await pdf.getPage(i);
+    const v = page.getViewport({scale: 1});
+    paginas.push({n: i, page, w: v.width, h: v.height, texto: null, lineas: null});
+  }
+  return {pdf, paginas, ediciones: await leerEdicionesPdf(pdf)};
+}
 async function abrirVisorPdf(file){
   await cargarScript(CDN.pdfjs);
   pdfjsLib.GlobalWorkerOptions.workerSrc = CDN.pdfjsWorker;
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const pdf = await pdfjsLib.getDocument({data: bytes.slice()}).promise;
+  const {pdf, paginas, ediciones} = await cargarPaginasPdf(bytes);
   if (visor.pdf) try { visor.pdf.destroy(); } catch(e){}
-  Object.assign(visor, {activo:true, pdf, bytes, nombre:file.name, paginas:[], editando:false, anadiendo:false, cambios:false});
+  Object.assign(visor, {activo:true, pdf, bytes, nombre:file.name, paginas, ediciones, editando:false, anadiendo:false, cambios:false});
   document.body.classList.add('modo-pdf'); document.body.classList.remove('pdf-editando', 'pdf-anadiendo');
   $('vpNombre').textContent = file.name; $('vpNombre').title = file.name;
   nombreDoc.value = file.name.replace(/\.[^.]+$/, '');
   editor.innerHTML = '';
   deseleccionarImagen && deseleccionarImagen();
-  for (let i = 1; i <= pdf.numPages; i++){
-    const page = await pdf.getPage(i);
-    const v = page.getViewport({scale: 1});
-    visor.paginas.push({n: i, page, w: v.width, h: v.height, texto: null, lineas: null});
-  }
   ponerPaginaCss();
   visor.escala = escalaAjustada();
   maquetarPaginas();
@@ -2911,14 +2925,17 @@ function familiaDe(p, fontName){
   const fam = ((p.texto.styles[fontName] || {}).fontFamily || '') + ' ' + fontName;
   return /mono|courier/i.test(fam) ? 'monospace' : /serif|times|roman|georgia|garamond|book/i.test(fam) && !/sans/i.test(fam) ? 'serif' : 'sans-serif';
 }
+const tapada = (ed, x, y) => x >= ed.x - 1 && x <= ed.x + ed.w + 1 && y >= ed.y - ed.size * 0.3 && y <= ed.y + ed.size * 0.9;
 function lineasPagina(p){
   if (p.lineas) return p.lineas;
+  const eds = (visor.ediciones || []).filter(e => e.pag === p.n);
   const items = [];
   for (const it of p.texto.items){
     if (!it.str || !it.str.trim()) continue;   // los espacios se deducen por la distancia entre palabras
     const [a, b, c, d, e, f] = it.transform;
     if (Math.abs(b) > 0.01 || Math.abs(c) > 0.01) continue;     // texto girado: no editable
     const size = Math.abs(d) || Math.abs(a); if (!size) continue;
+    if (eds.some(ed => tapada(ed, e, f))) continue;              // texto antiguo ya sustituido por MyText
     items.push({x: e, y: f, w: it.width, size, str: it.str, font: it.fontName});
   }
   items.sort((m, n) => (n.y - m.y) || (m.x - n.x));
@@ -2936,6 +2953,8 @@ function lineasPagina(p){
     }
   }
   p.lineas = lineas.filter(l => l.original.trim()).map(l => ({...l, original: l.original.replace(/\s+$/, ''), texto: l.original.replace(/\s+$/, ''), editada: false}));
+  // Las líneas editadas antes con MyText aparecen como texto normal, listo para volver a editar
+  eds.forEach(ed => { if (ed.texto) p.lineas.push({pag: p.n, x: ed.x, y: ed.y, w: ed.w, size: ed.size, original: ed.texto, texto: ed.texto, familia: ed.familia, negrita: ed.negrita, cursiva: ed.cursiva, editada: false, deMyText: true}); });
   return p.lineas;
 }
 function crearLineaEl(p, v, l){
@@ -2950,7 +2969,10 @@ function crearLineaEl(p, v, l){
     minWidth: (l.nueva ? 40 : l.w * visor.escala + 2) + 'px', height: (fs * 1.15) + 'px'
   });
   el.textContent = l.texto;
-  el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === 'Escape'){ e.preventDefault(); el.blur(); } e.stopPropagation(); });
+  el.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === 'Escape'){ e.preventDefault(); el.blur(); }
+    if (!e.ctrlKey && !e.metaKey && !e.altKey) e.stopPropagation();   // los atajos (Ctrl+S…) siguen funcionando
+  });
   el.addEventListener('paste', e => { e.preventDefault(); document.execCommand('insertText', false, (e.clipboardData.getData('text/plain') || '').replace(/\s*\n\s*/g, ' ')); });
   el.addEventListener('input', () => {
     l.texto = el.textContent;
@@ -3007,7 +3029,8 @@ async function exportarPdfEditado(){
   try {
     cargando(true, 'Guardando PDF…');
     await cargarScript(CDN.pdflib);
-    const {PDFDocument, StandardFonts, rgb} = PDFLib;
+    const {PDFDocument, StandardFonts, rgb, PDFName, PDFHexString} = PDFLib;
+    const ediciones = new Map((visor.ediciones || []).map(e => [e.pag + ':' + Math.round(e.x) + ':' + Math.round(e.y), e]));
     const doc = await PDFDocument.load(visor.bytes.slice(), {ignoreEncryption: true});
     const cache = {};
     const fuente = async l => {
@@ -3023,15 +3046,29 @@ async function exportarPdfEditado(){
       const pagina = doc.getPage(p.n - 1);
       for (const l of p.lineas){
         if (!l.editada) continue;
-        if (!l.nueva) pagina.drawRectangle({x: l.x - 0.6, y: l.y - l.size * 0.24, width: l.w + 1.2, height: l.size * 1.14, color: rgb(1, 1, 1)});
-        if (l.texto.trim()){ const f = await fuente(l); pagina.drawText(limpiar(l.texto, f), {x: l.x, y: l.y, size: l.size, font: f, color: rgb(0, 0, 0)}); }
+        if (!l.nueva || l.deMyText) pagina.drawRectangle({x: l.x - 0.6, y: l.y - l.size * 0.24, width: l.w + 1.2, height: l.size * 1.14, color: rgb(1, 1, 1)});
+        let ancho = l.w;
+        if (l.texto.trim()){ const f = await fuente(l); const t = limpiar(l.texto, f); pagina.drawText(t, {x: l.x, y: l.y, size: l.size, font: f, color: rgb(0, 0, 0)}); ancho = Math.max(ancho, f.widthOfTextAtSize(t, l.size)); }
+        const k = p.n + ':' + Math.round(l.x) + ':' + Math.round(l.y);
+        const prev = ediciones.get(k);
+        ediciones.set(k, {pag: p.n, x: l.x, y: l.y, w: Math.max(ancho, prev ? prev.w : 0), size: l.size, texto: l.texto, familia: l.familia, negrita: !!l.negrita, cursiva: !!l.cursiva});
         n++;
       }
     }
+    const lista = [...ediciones.values()];
+    try { doc.getInfoDict().set(PDFName.of('MyTextEdiciones'), PDFHexString.fromText(JSON.stringify(lista))); } catch(e){}
     const salida = await doc.save();
     cargando(false);
     const ok = await descargar(new Blob([salida], {type: 'application/pdf'}), nombreBase() + '.pdf');
-    if (ok !== false){ visor.cambios = false; visor.bytes = salida; }
+    if (ok !== false){
+      // Mostrar el PDF tal como ha quedado guardado
+      const editando = visor.editando;
+      const nuevo = await cargarPaginasPdf(salida);
+      try { visor.pdf.destroy(); } catch(e){}
+      Object.assign(visor, {pdf: nuevo.pdf, paginas: nuevo.paginas, ediciones: nuevo.ediciones.length ? nuevo.ediciones : lista, bytes: salida, cambios: false});
+      if (editando) for (const pg of visor.paginas) pg.texto = await pg.page.getTextContent();
+      rehacerPaginas();
+    }
     return ok;
   } catch(e){
     cargando(false); console.error(e);

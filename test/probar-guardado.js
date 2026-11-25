@@ -4,6 +4,8 @@ const { _electron: electron } = require('playwright');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { execSync } = require('child_process');
+const matarElectron = () => { try { execSync('taskkill /F /IM electron.exe /T', { stdio: 'ignore' }); } catch (e) {} };
 
 const RAIZ = path.join(__dirname, '..');
 const ORIGEN = path.join(__dirname, 'archivos');
@@ -17,6 +19,7 @@ const espera = ms => new Promise(r => setTimeout(r, ms));
 async function abrirPrograma(archivo) {
   const app = await electron.launch({ args: [RAIZ, archivo], timeout: 60000 });
   const win = await app.firstWindow();
+  win.on('dialog', d => d.accept().catch(() => {}));   // aceptar los avisos (confirm) como haría el usuario
   await win.waitForFunction(() => window.__mytextRuta && window.__mytextRuta(), null, { timeout: 45000 });
   await espera(1500);
   return { app, win };
@@ -26,7 +29,8 @@ async function cerrarPrograma(app) {
   const salida = new Promise(r => proc.once('exit', r));
   try { await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().forEach(w => w.close())); } catch (e) {}
   await Promise.race([salida, espera(20000)]);
-  if (proc.exitCode === null) { try { proc.kill(); } catch (e) {} await espera(1500); }
+  if (proc.exitCode === null) { console.log('   (el programa no se cerró solo; se fuerza el cierre)'); try { proc.kill(); } catch (e) {} matarElectron(); await espera(1500); }
+  matarElectron();
   await espera(1500);
 }
 async function contenido(win) {
