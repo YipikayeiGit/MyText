@@ -1,5 +1,5 @@
 {
-  "version": "1.0.7",
+  "version": "1.0.8",
   "minApp": "1.0.0",
-  "notas": "La versión web guarda en el archivo original; comprobación al guardar"
+  "notas": "PDF: Ctrl+S al editar texto, la vista muestra lo guardado y se puede volver a editar"
 }
