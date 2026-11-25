@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
 <title>MyText</title>
-<meta name="mytext-version" content="1.0.6">
+<meta name="mytext-version" content="1.0.7">
 <style>
   :root{
     --bg:#e6e8ec; --bar:#ffffff; --line:#d5d9e0; --ink:#1f2430; --muted:#6b7280;
@@ -264,7 +264,10 @@
       <button data-accion="nuevo">Nuevo <kbd>Ctrl+Alt+N</kbd></button>
       <button data-accion="abrir">Abrir… <kbd>Ctrl+O</kbd></button>
       <hr>
-      <button data-accion="guardar-docx">Guardar como Word (.docx) <kbd>Ctrl+S</kbd></button>
+      <button data-accion="guardar" class="solo-web">Guardar <kbd>Ctrl+S</kbd></button>
+      <button data-accion="guardar-como" class="solo-web">Guardar como… <kbd>Ctrl+Mayús+S</kbd></button>
+      <hr class="solo-web">
+      <button data-accion="guardar-docx">Guardar como Word (.docx)</button>
       <button data-accion="guardar-doc">Guardar como Word 97-2003 (.doc)</button>
       <button data-accion="guardar-odt">Guardar como OpenDocument (.odt)</button>
       <button data-accion="guardar-rtf">Guardar como texto enriquecido (.rtf)</button>
@@ -446,7 +449,7 @@
   <span id="cuentaPaginas">Página 1 de 1</span>
   <span id="cuentaPalabras">0 palabras</span>
   <span id="cuentaCaracteres">0 caracteres</span>
-  <span id="estadoGuardado">Guardado automático activado</span>
+  <span id="estadoGuardado"></span>
   <div class="der">
     <span>Zoom</span>
     <input type="range" id="zoom" min="50" max="200" step="10" value="100">
@@ -512,13 +515,26 @@ function cmd(c, v = null){
   actualizar();
 }
 function nombreBase(){ return (nombreDoc.value.trim() || 'documento').replace(/[\\/:*?"<>|]/g,'_'); }
-function descargar(contenido, nombre, tipo){
+async function descargar(contenido, nombre, tipo){
   const blob = contenido instanceof Blob ? contenido : new Blob([contenido], {type: tipo});
+  if (destinoHandle){
+    const h = destinoHandle; destinoHandle = null;
+    try {
+      await escribirEnArchivo(h, blob);
+      aviso('Guardado en "' + h.name + '" ✓');
+      $('estadoGuardado').textContent = 'Guardado a las ' + new Date().toLocaleTimeString('es-ES', {hour: '2-digit', minute: '2-digit'}) + ' en "' + h.name + '"';
+      return true;
+    } catch(e){
+      if (e && e.name === 'AbortError') return false;
+      alert('No se pudo guardar en "' + h.name + '".\n\n' + (e && e.message || e) + '\n\nSe descargará una copia en la carpeta Descargas.');
+    }
+  }
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a'); a.href = url; a.download = nombre;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 3000);
-  aviso('Descargado: ' + nombre);
+  aviso('Se ha descargado una copia: ' + nombre + ' (carpeta Descargas)', 4500);
+  return true;
 }
 const cargados = {};
 function cargarScript(src){
@@ -750,9 +766,11 @@ function estadoBotones(){
 const acciones = {
   nuevo(){
     if (editor.innerText.trim() && !confirm('¿Crear un documento nuevo? Se perderán los cambios no guardados.')) return;
-    editor.innerHTML = ''; nombreDoc.value = 'Documento sin título'; actualizar(); editor.focus();
+    editor.innerHTML = ''; nombreDoc.value = 'Documento sin título'; if (!window.mytext) fijarArchivoWeb(null); actualizar(); editor.focus();
   },
-  abrir(){ $('archivo').value = ''; $('archivo').click(); },
+  abrir(){ abrirNavegador(); },
+  guardar(){ return guardarNavegador(false); },
+  'guardar-como'(){ return guardarNavegador(true); },
   'guardar-docx': () => exportarDocx(),
   'guardar-doc': () => exportarDoc(),
   'guardar-odt': () => exportarOdt(),
@@ -761,7 +779,7 @@ const acciones = {
     const html = `<!DOCTYPE html>\n<html lang="es"><head><meta charset="UTF-8"><title>${escapar(nombreDoc.value)}</title>
 <style>body{font-family:Calibri,sans-serif;font-size:12pt;line-height:1.5;max-width:800px;margin:40px auto;padding:0 20px}table{border-collapse:collapse}td,th{border:1px solid #999;padding:5px 8px}@media print{body{margin:0;max-width:none}}${cssTitulos('body', false)}</style>
 </head><body>\n${limpioParaExportar(true)}\n</body></html>`;
-    descargar(html, nombreBase() + '.html', 'text/html;charset=utf-8');
+    return descargar(html, nombreBase() + '.html', 'text/html;charset=utf-8');
   },
   async 'guardar-pdf'(){
     try {
@@ -780,14 +798,14 @@ const acciones = {
         image: {type:'jpeg', quality:0.96}, html2canvas: {scale:2, useCORS:true},
         jsPDF: {unit:'mm', format:'a4', orientation:'portrait'},
         pagebreak: {mode:['css','legacy'], avoid:['p','h1','h2','h3','li','tr','img']}
-      }).from(cont).save();
+      }).from(cont).outputPdf('blob').then(b => descargar(new Blob([b], {type: 'application/pdf'}), nombreBase() + '.pdf'));
     } catch(e){
       aviso('No se pudo generar el PDF directamente. En la ventana de imprimir elige "Guardar como PDF".', 6000);
       window.print();
     } finally { cargando(false); }
   },
-  'guardar-txt'(){ const c = document.createElement('div'); c.innerHTML = limpioParaExportar(true); document.body.appendChild(c); const t = c.innerText; c.remove(); descargar(t, nombreBase() + '.txt', 'text/plain;charset=utf-8'); },
-  'guardar-md'(){ const c = document.createElement('div'); c.innerHTML = limpioParaExportar(true); descargar(htmlAMarkdown(c), nombreBase() + '.md', 'text/markdown;charset=utf-8'); },
+  'guardar-txt'(){ const c = document.createElement('div'); c.innerHTML = limpioParaExportar(true); document.body.appendChild(c); const t = c.innerText; c.remove(); return descargar(t, nombreBase() + '.txt', 'text/plain;charset=utf-8'); },
+  'guardar-md'(){ const c = document.createElement('div'); c.innerHTML = limpioParaExportar(true); return descargar(htmlAMarkdown(c), nombreBase() + '.md', 'text/markdown;charset=utf-8'); },
   imprimir(){ if (visor.activo) imprimirPdf(); else window.print(); },
   buscar(){ abrirBuscador(); },
   copiar(){ restaurarSeleccion(); document.execCommand('copy'); },
@@ -1108,6 +1126,7 @@ $('archivo').addEventListener('change', e => { if (e.target.files[0]) abrirArchi
 
 async function abrirArchivo(file, sinConfirmar = false){
   const ext = file.name.split('.').pop().toLowerCase();
+  if (!window.mytext) archivoHandle = null;
   if (!sinConfirmar && editor.innerText.trim() && !confirm('¿Abrir "' + file.name + '"? Se reemplazará el contenido actual.')) return;
   try {
     cargando(true, 'Abriendo ' + file.name + '…');
@@ -1130,6 +1149,7 @@ async function abrirArchivo(file, sinConfirmar = false){
     normalizarSaltos(); limpiarTitulos();
     nombreDoc.value = file.name.replace(/\.[^.]+$/, '');
     actualizar(); $('zona').scrollTop = 0;
+    if (!window.mytext) $('estadoGuardado').textContent = '';
     aviso('Abierto: ' + file.name);
     return true;
   } catch(err){
@@ -1975,6 +1995,77 @@ async function exportarDocx(){
 }
 
 
+
+/* ================= navegador: abrir y guardar en el archivo original (Chrome y Edge) ================= */
+const FS_DISPONIBLE = !window.mytext && 'showOpenFilePicker' in window && 'showSaveFilePicker' in window;
+let archivoHandle = null, destinoHandle = null;
+const ACCION_WEB = {docx: 'guardar-docx', doc: 'guardar-doc', dot: 'guardar-doc', odt: 'guardar-odt', rtf: 'guardar-rtf', html: 'guardar-html', htm: 'guardar-html', txt: 'guardar-txt', log: 'guardar-txt', csv: 'guardar-txt', md: 'guardar-md', markdown: 'guardar-md', pdf: 'guardar-pdf'};
+const TIPOS_WEB = [
+  ['docx', 'Documento de Word', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+  ['doc', 'Documento de Word 97-2003', 'application/msword'],
+  ['odt', 'OpenDocument', 'application/vnd.oasis.opendocument.text'],
+  ['rtf', 'Texto enriquecido', 'application/rtf'],
+  ['pdf', 'PDF', 'application/pdf'],
+  ['html', 'Página web', 'text/html'],
+  ['txt', 'Texto sin formato', 'text/plain'],
+  ['md', 'Markdown', 'text/markdown']
+];
+const extWeb = n => (n.split('.').pop() || '').toLowerCase();
+async function escribirEnArchivo(h, blob){
+  if (h.queryPermission && (await h.queryPermission({mode: 'readwrite'})) !== 'granted'){
+    if ((await h.requestPermission({mode: 'readwrite'})) !== 'granted') throw new Error('No se dio permiso para escribir en el archivo.');
+  }
+  const w = await h.createWritable();
+  await w.write(blob); await w.close();
+  // Comprobar que se ha escrito
+  const f = await h.getFile();
+  if (f.size !== blob.size) throw new Error('El archivo no quedó bien escrito (tamaño distinto).');
+}
+function fijarArchivoWeb(h){
+  archivoHandle = h;
+  if (h){ nombreDoc.value = h.name.replace(/\.[^.]+$/, ''); document.title = h.name + ' — MyText'; }
+  else document.title = 'MyText';
+}
+async function abrirNavegador(){
+  if (!FS_DISPONIBLE){ $('archivo').value = ''; $('archivo').click(); return; }
+  let h;
+  try {
+    [h] = await showOpenFilePicker({types: [{description: 'Documentos', accept: {'application/octet-stream': ['.docx', '.doc', '.pdf', '.txt', '.md', '.html', '.htm', '.rtf', '.odt']}}], excludeAcceptAllOption: false});
+  } catch(e){ return; }
+  const ok = await abrirArchivo(await h.getFile());
+  if (ok) fijarArchivoWeb(h);
+}
+// Guardar: en el mismo archivo y formato. Guardar como (o documento nuevo): elegir archivo y formato.
+async function guardarNavegador(como){
+  if (!FS_DISPONIBLE){
+    aviso('Este navegador no permite guardar sobre el archivo original: se descargará una copia. Para guardar sobre el original usa Chrome, Edge o el programa MyText.', 6000);
+    return visor.activo ? exportarPdfEditado() : exportarDocx();
+  }
+  let h = como ? null : archivoHandle;
+  if (h && !ACCION_WEB[extWeb(h.name)]) h = null;
+  if (!h){
+    const actual = visor.activo ? 'pdf' : (archivoHandle && ACCION_WEB[extWeb(archivoHandle.name)] ? extWeb(archivoHandle.name) : 'docx');
+    let tipos = TIPOS_WEB.filter(t => !visor.activo || t[0] === 'pdf');
+    tipos = [...tipos.filter(t => t[0] === actual), ...tipos.filter(t => t[0] !== actual)];
+    try {
+      h = await showSaveFilePicker({suggestedName: nombreBase() + '.' + actual, types: tipos.map(t => ({description: t[1], accept: {[t[2]]: ['.' + t[0]]}}))});
+    } catch(e){ return false; }
+  }
+  const ext = extWeb(h.name);
+  if (visor.activo && ext !== 'pdf'){ aviso('Un PDF solo se puede guardar como PDF. Para otros formatos usa «Convertir a documento».', 5000); return false; }
+  if ((ext === 'txt' || ext === 'md') && !como && h === archivoHandle && tieneFormatoWeb() && !guardarNavegador.avisado){
+    guardarNavegador.avisado = true;
+    if (!confirm(`El formato .${ext} no guarda ${ext === 'txt' ? 'negritas, colores, títulos, tablas ni imágenes' : 'colores, tamaños de letra ni imágenes'}.\n\n¿Guardar igualmente en "${h.name}"?\n\n(Cancelar = elegir otro formato)`)) return guardarNavegador(true);
+  }
+  destinoHandle = h;
+  let ok;
+  try { ok = await (visor.activo ? exportarPdfEditado() : acciones[ACCION_WEB[ext] || 'guardar-docx']()); }
+  finally { destinoHandle = null; }
+  if (ok !== false && (ext !== 'pdf' || visor.activo)) fijarArchivoWeb(h);
+  return ok;
+}
+const tieneFormatoWeb = () => !!editor.querySelector('b,strong,i,em,u,s,span[style],font,img,table,h1,h2,h3,ul,ol,a,blockquote');
+
 /* ================= otros formatos: RTF, ODT y Word 97-2003 (.doc) ================= */
 const b64aBytes = b64 => { const bin = atob(b64); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
 function medidasImagen(img){
@@ -2258,11 +2349,13 @@ $('archivoImagen').addEventListener('change', e => {
   e.preventDefault();
   if (ev === 'drop'){
     const f = e.dataTransfer.files[0];
+    const it = e.dataTransfer.items && e.dataTransfer.items[0];
+    const promesaHandle = !window.mytext && it && it.getAsFileSystemHandle ? it.getAsFileSystemHandle().catch(() => null) : null;
     if (f && f.type.startsWith('image/') && (editor.contains(e.target) || documento.contains(e.target))){
       const rg = rangoEnPunto(e.clientX, e.clientY);
       if (rg && editor.contains(rg.startContainer)){ const s = getSelection(); s.removeAllRanges(); s.addRange(rg); rangoGuardado = rg.cloneRange(); }
       const r = new FileReader(); r.onload = () => { restaurarSeleccion(); insertarImagen(r.result); }; r.readAsDataURL(f);
-    } else if (f) abrirArchivo(f);
+    } else if (f) abrirArchivo(f).then(async ok => { if (ok && promesaHandle){ const h = await promesaHandle; if (h && h.kind === 'file') fijarArchivoWeb(h); } });
   }
 }));
 editor.addEventListener('paste', e => {
@@ -2644,12 +2737,12 @@ function actualizar(){
   $('cuentaPalabras').textContent = palabras + (palabras === 1 ? ' palabra' : ' palabras');
   $('cuentaCaracteres').textContent = editor.innerText.replace(/\n/g,'').length + ' caracteres';
   clearTimeout(tGuardar);
-  $('estadoGuardado').textContent = 'Guardando…';
+  if (!window.mytext) $('estadoGuardado').textContent = 'Cambios sin guardar en el archivo';
   tGuardar = setTimeout(() => {
     try {
       localStorage.setItem(CLAVE.contenido, limpioParaExportar(false, true));
       localStorage.setItem(CLAVE.nombre, nombreDoc.value);
-      $('estadoGuardado').textContent = 'Guardado en el navegador ' + new Date().toLocaleTimeString('es-ES', {hour:'2-digit', minute:'2-digit'});
+      // (copia de seguridad interna; no es guardar el archivo)
     } catch(e){ $('estadoGuardado').textContent = 'Sin guardado automático (documento muy grande)'; }
   }, 700);
 }
@@ -2665,7 +2758,7 @@ document.addEventListener('keydown', e => {
   }
   if (!ctrl) return;
   const k = e.key.toLowerCase();
-  if (k === 's'){ e.preventDefault(); if (window.__mytextGuardarAtajo) window.__mytextGuardarAtajo(e.shiftKey); else if (visor.activo) exportarPdfEditado(); else exportarDocx(); }
+  if (k === 's'){ e.preventDefault(); if (window.__mytextGuardarAtajo) window.__mytextGuardarAtajo(e.shiftKey); else guardarNavegador(e.shiftKey); }
   else if (k === 'o'){ e.preventDefault(); acciones.abrir(); }
   else if (k === 'f' || k === 'h'){ e.preventDefault(); abrirBuscador(); }
   else if (k === 'k'){ e.preventDefault(); acciones.enlace(); }
@@ -3029,7 +3122,7 @@ if (window.mytext) (function(){
   const nombreDe = r => r.split(/[\\/]/).pop();
   const extDe = r => (r.split('.').pop() || '').toLowerCase();
   function titulo(){ M.titulo((window.__mytextModificado ? '● ' : '') + (ruta ? nombreDe(ruta) : (nombreDoc.value || 'Documento sin título')) + ' — MyText'); }
-  function ponerModificado(v){ window.__mytextModificado = v; titulo(); guardarEstado(); }
+  function ponerModificado(v){ window.__mytextModificado = v; titulo(); guardarEstado(); if (v) $('estadoGuardado').textContent = '● Cambios sin guardar'; }
   function guardarEstado(){ try { localStorage.setItem(CLAVE.estado, JSON.stringify({ruta, modificado: window.__mytextModificado, ts: Date.now()})); } catch(e){} }
   function fijarRuta(r){ ruta = r; if (r) nombreDoc.value = nombreDe(r).replace(/\.[^.]+$/, ''); titulo(); guardarEstado(); }
 
@@ -3078,7 +3171,8 @@ if (window.mytext) (function(){
       const ext = extDe(r);
       if (ESCRIBIBLES[ext] || (ext === 'pdf' && visor.activo)){ fijarRuta(r); avisadoFormato[r] = true; }   // a partir de ahora "Guardar" escribe en ese archivo
       ponerModificado(false);
-      aviso('Guardado: ' + nombreDe(r));
+      aviso('Guardado ✓  ' + r, 4500);
+      $('estadoGuardado').textContent = 'Guardado a las ' + new Date().toLocaleTimeString('es-ES', {hour: '2-digit', minute: '2-digit'}) + ' en ' + r;
     }
     if (esperando){ esperando(ok); esperando = null; }
     return ok;
@@ -3199,7 +3293,7 @@ if (window.mytext) (function(){
     <button id="mtGuardarComo">Guardar como… <kbd>Ctrl+Mayús+S</kbd></button>
     <hr>`);
   // quitar los Nuevo/Abrir originales (ya están arriba) y el atajo duplicado de Word
-  opcArchivo.querySelectorAll('[data-accion="nuevo"],[data-accion="abrir"]').forEach(b => b.remove());
+  opcArchivo.querySelectorAll('[data-accion="nuevo"],[data-accion="abrir"],.solo-web').forEach(b => b.remove());
   const btnDocx = opcArchivo.querySelector('[data-accion="guardar-docx"] kbd'); if (btnDocx) btnDocx.remove();
   opcArchivo.querySelectorAll('[data-accion^="guardar-"]').forEach(b => { b.childNodes[0].nodeValue = b.childNodes[0].nodeValue.replace('Guardar como', 'Exportar a'); });
   const clic = (id, fn) => { const b = $(id); b.addEventListener('mousedown', e => e.preventDefault()); b.addEventListener('click', fn); };

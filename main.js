@@ -233,8 +233,15 @@ ipcMain.on('info', e => {
   };
 });
 
+// Escribe el archivo y comprueba que ha quedado escrito entero
+async function escribirComprobando(ruta, datos) {
+  const buf = Buffer.from(datos);
+  await fs.promises.writeFile(ruta, buf);
+  const st = await fs.promises.stat(ruta);
+  if (st.size !== buf.length) throw new Error(`El archivo quedó incompleto (${st.size} de ${buf.length} bytes).`);
+}
 ipcMain.handle('guardar', async (e, { ruta, datos }) => {
-  try { await fs.promises.writeFile(ruta, Buffer.from(datos)); anadirReciente(ruta); return ruta; }
+  try { await escribirComprobando(ruta, datos); anadirReciente(ruta); return ruta; }
   catch (err) { dialog.showErrorBox('MyText', 'No se pudo guardar:\n' + ruta + '\n\n' + err.message); return null; }
 });
 
@@ -247,7 +254,7 @@ ipcMain.handle('guardar-como', async (e, { nombre, datos }) => {
     filters: [FILTROS[ext] || { name: ext.toUpperCase(), extensions: [ext] }, { name: 'Todos los archivos', extensions: ['*'] }]
   });
   if (r.canceled || !r.filePath) return null;
-  try { await fs.promises.writeFile(r.filePath, Buffer.from(datos)); anadirReciente(r.filePath); return r.filePath; }
+  try { await escribirComprobando(r.filePath, datos); anadirReciente(r.filePath); return r.filePath; }
   catch (err) { dialog.showErrorBox('MyText', 'No se pudo guardar:\n' + r.filePath + '\n\n' + err.message); return null; }
 });
 

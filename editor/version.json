@@ -1,5 +1,5 @@
 {
-  "version": "1.0.6",
+  "version": "1.0.7",
   "minApp": "1.0.0",
-  "notas": "Guardar en el mismo archivo y formato (.doc, .odt, .rtf, .pdf...); Guardar como con elección de formato"
+  "notas": "La versión web guarda en el archivo original; comprobación al guardar"
 }
