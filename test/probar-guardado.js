@@ -126,11 +126,33 @@ async function probarPdf() {
   await cerrarPrograma(app);
 }
 
+async function probarFormato(ext) {
+  const archivo = path.join(TMP, `formato.${ext}`);
+  fs.copyFileSync(path.join(ORIGEN, `prueba.${ext}`), archivo);
+  const SCRIPT = fs.readFileSync(path.join(__dirname, 'formato-navegador.js'), 'utf8');
+  let { app, win } = await abrirPrograma(archivo);
+  await win.addScriptTag({ content: SCRIPT });
+  await win.evaluate(() => window.__aplicarFormato());
+  const antes = await win.evaluate(() => window.__verificarFormato());
+  await win.keyboard.press('Control+s');
+  try { await win.waitForFunction(() => /Guardado a las/.test(document.getElementById('estadoGuardado').textContent) && !window.__mytextModificado, null, { timeout: 20000 }); }
+  catch (e) { await registrar(`.${ext} formato`, false, 'no terminó de guardar', win); await cerrarPrograma(app); return; }
+  // Como si se abriera en otro PC: sin los estilos de título guardados en este
+  await win.evaluate(() => { localStorage.removeItem('editor-estilos'); localStorage.removeItem('editor-numerar'); });
+  await cerrarPrograma(app);
+  ({ app, win } = await abrirPrograma(archivo));
+  await win.addScriptTag({ content: SCRIPT });
+  const fallos = await win.evaluate(() => window.__verificarFormato());
+  await registrar(`.${ext} formato (22 comprobaciones)`, !fallos.length && !antes.length, fallos.length ? 'se pierde: ' + fallos.join(', ') : (antes.length ? 'no se aplicó: ' + antes.join(', ') : 'se conserva todo'), win);
+  await cerrarPrograma(app);
+}
+
 (async () => {
   const formatos = ['docx', 'doc', 'odt', 'rtf', 'txt', 'md', 'html'];
   for (const ext of formatos) { try { await probarCtrlS(ext); } catch (e) { await registrar(`.${ext} Ctrl+S`, false, e.message.split('\n')[0]); } }
   for (const ext of ['docx', 'doc', 'txt']) { try { await probarGuardarAlCerrar(ext); } catch (e) { await registrar(`.${ext} Guardar al cerrar`, false, e.message.split('\n')[0]); } }
   for (const ext of ['docx', 'odt']) { try { await probarBotonGuardar(ext); } catch (e) { await registrar(`.${ext} Archivo → Guardar`, false, e.message.split('\n')[0]); } }
+  for (const ext of ['docx', 'doc', 'odt', 'rtf', 'html']) { try { await probarFormato(ext); } catch (e) { await registrar(`.${ext} formato (22 comprobaciones)`, false, e.message.split('\n')[0]); } }
   try { await probarPdf(); } catch (e) { await registrar('.pdf editar texto + Ctrl+S', false, e.message.split('\n')[0]); }
   const fallos = resultados.filter(r => !r.ok);
   console.log(`\n${resultados.length - fallos.length} de ${resultados.length} pruebas correctas`);

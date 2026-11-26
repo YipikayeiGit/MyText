@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
 <title>MyText</title>
-<meta name="mytext-version" content="1.0.8">
+<meta name="mytext-version" content="1.0.9">
 <style>
   :root{
     --bg:#e6e8ec; --bar:#ffffff; --line:#d5d9e0; --ink:#1f2430; --muted:#6b7280;
@@ -658,8 +658,9 @@ function limpiarTitulos(){
   });
 }
 // Si un documento ya traía títulos con formato propio, lo adopta como estilo del nivel
-function adoptarFormatoTitulos(){
-  if (estilosGuardados) return;
+// forzar = true: al abrir un archivo, los títulos toman el formato que traen en el archivo
+function adoptarFormatoTitulos(forzar = false){
+  if (!forzar && estilosGuardados) return;
   let cambio = false;
   ['h1','h2','h3'].forEach(l => {
     const h = [...editor.querySelectorAll(l)].find(h => h.getAttribute('style') || h.querySelector('span[style],font,b,strong,i,em,u'));
@@ -670,7 +671,10 @@ function adoptarFormatoTitulos(){
     const s = estilos[l];
     const hex = aHex(cs.color);
     if (hex && hex !== '1F2430' && hex !== 'E6E8EC' && hex !== '000000') s.color = '#' + hex.toLowerCase();
-    const fuente = primeraFuente(cs.fontFamily); if (fuente && !/calibri|carlito|segoe/i.test(fuente)) s.font = fuente;
+    else if (forzar) s.color = '';
+    const fuente = primeraFuente(cs.fontFamily);
+    if (fuente && !/calibri|carlito|segoe/i.test(fuente)) s.font = fuente; else if (forzar) s.font = '';
+    if (forzar){ const al = h.style.textAlign; s.align = al === 'center' ? 'center' : al === 'right' ? 'right' : al === 'justify' ? 'justify' : ''; }
     s.size = Math.round(parseFloat(cs.fontSize) * 0.75 * 2) / 2 || s.size;
     s.bold = +cs.fontWeight >= 600; s.italic = cs.fontStyle === 'italic';
     s.underline = (cs.textDecorationLine || '').includes('underline');
@@ -1139,13 +1143,20 @@ async function abrirArchivo(file, sinConfirmar = false){
     else if (ext === 'odt') html = await leerOdt(file);
     else {
       const texto = await file.text();
-      if (ext === 'html' || ext === 'htm') html = extraerCuerpo(texto);
+      if (ext === 'html' || ext === 'htm'){
+        html = extraerCuerpo(texto);
+        // Títulos: aplicar su formato (de la hoja de estilos del archivo) como estilo en línea, para adoptarlo
+        const reglas = {}; texto.replace(/body h([123])\{([^}]*)\}/g, (m, n, d) => { reglas[n] = d; });
+        if (Object.keys(reglas).length){ const t = document.createElement('div'); t.innerHTML = html; t.querySelectorAll('h1,h2,h3').forEach(h => { const d = reglas[h.tagName[1]]; if (d) h.innerHTML = `<span style="${d.replace(/"/g, "'")}">${h.innerHTML}</span>`; }); html = t.innerHTML; }
+      }
       else if (ext === 'rtf') html = rtfAHtml(texto);
       else if (ext === 'md' || ext === 'markdown') html = markdownAHtml(texto);
       else html = textoAHtml(texto);
     }
     editor.innerHTML = html || '<p><br></p>';
+    colocarImagenesLeidas();
     quitarNumerosEscritos();
+    if (ext !== 'docx') adoptarFormatoTitulos(true);   // (en Word lo hace el propio lector con los estilos del documento)
     normalizarSaltos(); limpiarTitulos();
     nombreDoc.value = file.name.replace(/\.[^.]+$/, '');
     actualizar(); $('zona').scrollTop = 0;
@@ -1189,11 +1200,303 @@ function extraerCuerpo(texto){
   return doc.body.innerHTML;
 }
 
+/* Word (.docx): lector propio que conserva el formato (el de mammoth lo descarta: alineación, colores, tamaños…) */
 async function leerDocx(file){
-  await cargarScript(CDN.mammoth);
-  const r = await mammoth.convertToHtml({arrayBuffer: await file.arrayBuffer()});
-  return r.value;
+  try { return await leerDocxConFormato(file); }
+  catch(e){
+    console.warn('Lector de Word propio falló; se usa el alternativo', e);
+    await cargarScript(CDN.mammoth);
+    const r = await mammoth.convertToHtml({arrayBuffer: await file.arrayBuffer()});
+    return r.value;
+  }
 }
+async function leerDocxConFormato(file){
+  await cargarScript(CDN.jszip);
+  const zip = await JSZip.loadAsync(await file.arrayBuffer());
+  const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+  const R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+  const A = 'http://schemas.openxmlformats.org/drawingml/2006/main';
+  const WP = 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing';
+  const leerXml = async n => { const f = zip.file(n); return f ? new DOMParser().parseFromString(await f.async('string'), 'application/xml') : null; };
+  const doc = await leerXml('word/document.xml');
+  if (!doc || !doc.getElementsByTagNameNS(W, 'body')[0]) throw new Error('documento de Word no válido');
+  const stylesX = await leerXml('word/styles.xml'), numX = await leerXml('word/numbering.xml'), relsX = await leerXml('word/_rels/document.xml.rels');
+
+  const hijos = el => el ? [...el.childNodes].filter(n => n.nodeType === 1) : [];
+  const hijo = (el, nombre) => el ? hijos(el).find(n => n.localName === nombre) : null;
+  const atr = (el, nombre) => { if (!el) return null; const v = el.getAttributeNS(W, nombre); return v !== null && v !== '' ? v : (el.getAttribute('w:' + nombre)); };
+  const val = el => atr(el, 'val');
+  const activo = el => { if (!el) return undefined; const v = val(el); return !(v === '0' || v === 'false' || v === 'none' || v === 'off'); };
+
+  // Relaciones e imágenes
+  const rels = {};
+  if (relsX) [...relsX.getElementsByTagName('Relationship')].forEach(r => { rels[r.getAttribute('Id')] = {destino: r.getAttribute('Target'), externo: r.getAttribute('TargetMode') === 'External'}; });
+  const medios = {};
+  for (const [id, r] of Object.entries(rels)){
+    if (r.externo || !/\.(png|jpe?g|gif|bmp|svg|webp)$/i.test(r.destino)) continue;
+    const ruta = r.destino.startsWith('/') ? r.destino.slice(1) : 'word/' + r.destino.replace(/^\.\//, '');
+    const f = zip.file(ruta); if (!f) continue;
+    const ext = ruta.split('.').pop().toLowerCase();
+    medios[id] = `data:image/${ext === 'jpg' ? 'jpeg' : ext === 'svg' ? 'svg+xml' : ext};base64,` + await f.async('base64');
+  }
+
+  // Propiedades de carácter y de párrafo
+  const RESALTE = {yellow:'#ffff00', green:'#00ff00', cyan:'#00ffff', magenta:'#ff00ff', blue:'#0000ff', red:'#ff0000', darkBlue:'#000080', darkCyan:'#008080', darkGreen:'#008000', darkMagenta:'#800080', darkRed:'#800000', darkYellow:'#808000', darkGray:'#808080', lightGray:'#c0c0c0', black:'#000000', white:'#ffffff'};
+  function propsRun(rPr){
+    const o = {};
+    if (!rPr) return o;
+    const b = activo(hijo(rPr, 'b')); if (b !== undefined) o.b = b;
+    const i = activo(hijo(rPr, 'i')); if (i !== undefined) o.i = i;
+    const u = hijo(rPr, 'u'); if (u) o.u = val(u) !== 'none' && val(u) !== '0';
+    const st = activo(hijo(rPr, 'strike')), dst = activo(hijo(rPr, 'dstrike')); if (st !== undefined || dst !== undefined) o.s = !!(st || dst);
+    const c = hijo(rPr, 'color'); if (c && val(c) && val(c) !== 'auto') o.color = '#' + val(c);
+    const sz = hijo(rPr, 'sz'); if (sz && val(sz)) o.sz = +val(sz);
+    const hl = hijo(rPr, 'highlight'); if (hl && RESALTE[val(hl)]) o.bg = RESALTE[val(hl)];
+    const shd = hijo(rPr, 'shd'); if (shd && atr(shd, 'fill') && !/^(auto|FFFFFF)$/i.test(atr(shd, 'fill'))) o.bg = o.bg || '#' + atr(shd, 'fill');
+    const f = hijo(rPr, 'rFonts'); if (f && (atr(f, 'ascii') || atr(f, 'hAnsi'))) o.font = atr(f, 'ascii') || atr(f, 'hAnsi');
+    const va = hijo(rPr, 'vertAlign'); if (va) o.va = val(va) === 'superscript' ? 'super' : val(va) === 'subscript' ? 'sub' : '';
+    const rs = hijo(rPr, 'rStyle'); if (rs) o.rStyle = val(rs);
+    return o;
+  }
+  function propsPar(pPr){
+    const o = {};
+    if (!pPr) return o;
+    const ps = hijo(pPr, 'pStyle'); if (ps) o.estilo = val(ps);
+    const jc = hijo(pPr, 'jc'); if (jc) o.jc = val(jc);
+    const sp = hijo(pPr, 'spacing');
+    if (sp){
+      if (atr(sp, 'line') && (atr(sp, 'lineRule') || 'auto') === 'auto') o.lh = +atr(sp, 'line') / 240;
+      if (atr(sp, 'after') !== null && atr(sp, 'after') !== undefined) o.despues = +atr(sp, 'after');
+      if (atr(sp, 'before') !== null && atr(sp, 'before') !== undefined) o.antes = +atr(sp, 'before');
+    }
+    const ind = hijo(pPr, 'ind');
+    if (ind){
+      const l = atr(ind, 'left') || atr(ind, 'start'); if (l !== null && l !== undefined) o.izq = +l;
+      if (atr(ind, 'firstLine')) o.primera = +atr(ind, 'firstLine');
+      if (atr(ind, 'hanging')) o.primera = -atr(ind, 'hanging');
+    }
+    const np = hijo(pPr, 'numPr');
+    if (np){ const id = hijo(np, 'numId'), lv = hijo(np, 'ilvl'); if (id) o.numId = val(id); o.ilvl = lv ? +val(lv) : 0; }
+    if (activo(hijo(pPr, 'pageBreakBefore'))) o.saltoAntes = true;
+    const ol = hijo(pPr, 'outlineLvl'); if (ol) o.nivel = +val(ol);
+    return o;
+  }
+
+  // Estilos del documento (con herencia "basedOn")
+  const estilosDoc = {};
+  let defRun = {}, defPar = {};
+  if (stylesX){
+    const dd = stylesX.getElementsByTagNameNS(W, 'docDefaults')[0];
+    if (dd){ defRun = propsRun(hijo(hijo(dd, 'rPrDefault'), 'rPr')); defPar = propsPar(hijo(hijo(dd, 'pPrDefault'), 'pPr')); }
+    for (const s of stylesX.getElementsByTagNameNS(W, 'style')){
+      const id = atr(s, 'styleId');
+      estilosDoc[id] = {tipo: atr(s, 'type'), base: val(hijo(s, 'basedOn')), nombre: (val(hijo(s, 'name')) || '').toLowerCase(),
+        run: propsRun(hijo(s, 'rPr')), par: propsPar(hijo(s, 'pPr')), defecto: atr(s, 'default') === '1'};
+    }
+  }
+  const resolver = (id, campo, guard = 0) => {
+    const e = estilosDoc[id]; if (!e || guard > 15) return {};
+    const { estilo, ...propio } = e[campo];
+    return {...resolver(e.base, campo, guard + 1), ...propio};
+  };
+  const estiloNormal = Object.keys(estilosDoc).find(k => estilosDoc[k].tipo === 'paragraph' && estilosDoc[k].defecto) || 'Normal';
+  const nivelTitulo = id => {
+    const e = estilosDoc[id]; if (!e) return 0;
+    let m = (e.nombre || '').match(/^heading (\d)$/) || String(id).match(/^(?:Heading|Ttulo|Titulo|Título)(\d)$/i);
+    if (m) return +m[1];
+    const pl = resolver(id, 'par'); if (pl.nivel !== undefined && pl.nivel < 9) return pl.nivel + 1;
+    return 0;
+  };
+
+  // Estilos de título del documento → formato de los títulos del editor
+  try {
+    let hayTitulos = false, numerados = false;
+    [1, 2, 3].forEach(n => {
+      const id = Object.keys(estilosDoc).find(k => estilosDoc[k].tipo === 'paragraph' && nivelTitulo(k) === n && /^heading|^t[ií]tulo/i.test(estilosDoc[k].nombre || k));
+      if (!id) return;
+      hayTitulos = true;
+      const r = {...defRun, ...resolver(id, 'run')}, p = resolver(id, 'par');
+      const s = estilos['h' + n];
+      if (r.sz) s.size = r.sz / 2;
+      s.bold = !!r.b; s.italic = !!r.i; s.underline = !!r.u;
+      s.color = r.color && !/^#(000000|auto)$/i.test(r.color) ? r.color.toLowerCase() : '';
+      s.font = r.font && !/calibri|aptos/i.test(r.font) ? r.font : '';
+      s.align = {center: 'center', right: 'right', end: 'right', both: 'justify'}[p.jc] || '';
+      if (p.numId && p.numId !== '0') numerados = true;
+    });
+    if (hayTitulos){ numerarTitulos = numerados; aplicarEstilos(); }
+  } catch(e){}
+
+  // Numeración: ¿viñetas o números?
+  const formatoNum = {};
+  if (numX){
+    const abstractos = {};
+    for (const an of numX.getElementsByTagNameNS(W, 'abstractNum')){
+      const niveles = {};
+      for (const lv of an.getElementsByTagNameNS(W, 'lvl')) niveles[+atr(lv, 'ilvl')] = val(hijo(lv, 'numFmt')) || 'decimal';
+      abstractos[atr(an, 'abstractNumId')] = niveles;
+    }
+    for (const n of numX.getElementsByTagNameNS(W, 'num')) formatoNum[atr(n, 'numId')] = abstractos[val(hijo(n, 'abstractNumId'))] || {};
+  }
+  const tipoLista = (numId, ilvl) => ((formatoNum[numId] || {})[ilvl] || 'decimal') === 'bullet' ? 'ul' : 'ol';
+
+  // Conversión de texto
+  const px = twips => Math.round(twips / 15 * 10) / 10;
+  function estiloRun(r){
+    let c = '';
+    if (r.b) c += 'font-weight:bold;';
+    if (r.i) c += 'font-style:italic;';
+    const d = [r.u ? 'underline' : '', r.s ? 'line-through' : ''].filter(Boolean).join(' '); if (d) c += 'text-decoration:' + d + ';';
+    if (r.va) c += 'vertical-align:' + r.va + ';';
+    if (r.sz && r.sz !== 24 && !r.va) c += 'font-size:' + (r.sz / 2) + 'pt;';
+    if (r.font && !/^(calibri|carlito)$/i.test(r.font)) c += `font-family:'${r.font.replace(/'/g, '')}';`;
+    if (r.color && !/^#(000000|auto)$/i.test(r.color)) c += 'color:' + r.color + ';';
+    if (r.bg) c += 'background-color:' + r.bg + ';';
+    return c;
+  }
+  let campo = [];   // pila de campos (HYPERLINK, PAGE…): solo se muestra el resultado
+  function imagen(dr){
+    const blip = dr.getElementsByTagNameNS(A, 'blip')[0] || dr.getElementsByTagName('v:imagedata')[0];
+    if (!blip) return '';
+    const id = blip.getAttributeNS(R, 'embed') || blip.getAttributeNS(R, 'id') || blip.getAttribute('r:embed') || blip.getAttribute('r:id');
+    if (!medios[id]) return '';
+    const ext = dr.getElementsByTagNameNS(WP, 'extent')[0];
+    const w = ext ? Math.round(+ext.getAttribute('cx') / 9525) : null, h = ext ? Math.round(+ext.getAttribute('cy') / 9525) : null;
+    let st = (w ? `width:${w}px;` : '') + (h ? `height:${h}px;` : ''), aj = 'linea', alin = '';
+    const anc = dr.getElementsByTagNameNS(WP, 'anchor')[0];
+    if (anc){
+      const posH = anc.getElementsByTagNameNS(WP, 'positionH')[0];
+      const alH = posH && posH.getElementsByTagNameNS(WP, 'align')[0] ? posH.getElementsByTagNameNS(WP, 'align')[0].textContent : '';
+      const offH = posH && posH.getElementsByTagNameNS(WP, 'posOffset')[0] ? +posH.getElementsByTagNameNS(WP, 'posOffset')[0].textContent / 9525 : 0;
+      const posV = anc.getElementsByTagNameNS(WP, 'positionV')[0];
+      const offV = posV && posV.getElementsByTagNameNS(WP, 'posOffset')[0] ? +posV.getElementsByTagNameNS(WP, 'posOffset')[0].textContent / 9525 : 0;
+      const envoltura = hijos(anc).map(n => n.localName).find(n => /^wrap/.test(n)) || 'wrapNone';
+      if (/wrapSquare|wrapTight|wrapThrough/.test(envoltura)){ aj = alH === 'right' ? 'der' : 'izq'; st += aj === 'der' ? 'float:right;margin:4px 0 8px 16px;' : 'float:left;margin:4px 16px 8px 0;'; }
+      else if (envoltura === 'wrapTopAndBottom'){ aj = 'bloque'; alin = alH === 'left' ? 'izq' : alH === 'right' ? 'der' : 'centro'; st += 'display:block;margin:' + (alin === 'izq' ? '8px auto 8px 0' : alin === 'der' ? '8px 0 8px auto' : '8px auto') + ';'; }
+      else { aj = anc.getAttribute('behindDoc') === '1' ? 'detras' : 'delante'; st += `position:absolute;left:${Math.round(offH)}px;z-index:${aj === 'detras' ? -1 : 3};`; return `<img src="${medios[id]}" style="${st}" data-ajuste="${aj}" data-pdy="${Math.round(offV)}">`; }
+    }
+    return `<img src="${medios[id]}" style="${st}" data-ajuste="${aj}"${alin ? ` data-alin="${alin}"` : ''}>`;
+  }
+  // Contenido de un párrafo → {html, saltoPagina}
+  function contenidoParrafo(p, runBase){
+    let html = '', salto = false, abierto = null, txt = '';
+    const cerrar = () => { if (txt){ html += abierto ? `<span style="${abierto}">${txt}</span>` : txt; } txt = ''; };
+    const añadir = (t, est) => { if (est !== abierto){ cerrar(); abierto = est; } txt += t; };
+    const crudo = h => { cerrar(); abierto = null; html += h; };
+    const recorrer = (nodo, enlace) => {
+      for (const n of hijos(nodo)){
+        const nom = n.localName;
+        if (nom === 'pPr' || nom === 'rPr' || nom === 'bookmarkStart' || nom === 'bookmarkEnd' || nom === 'proofErr' || nom === 'del' || nom === 'commentRangeStart' || nom === 'commentRangeEnd') continue;
+        if (nom === 'hyperlink'){
+          const rid = n.getAttributeNS(R, 'id') || n.getAttribute('r:id');
+          const href = rid && rels[rid] ? rels[rid].destino : (atr(n, 'anchor') ? '#' + atr(n, 'anchor') : '');
+          if (href){ const antes = html.length; cerrar(); const ini = html.length; recorrer(n, true); cerrar(); const dentro = html.slice(ini); html = html.slice(0, ini) + `<a href="${escapar(href)}">${dentro}</a>`; abierto = null; }
+          else recorrer(n, enlace);
+          continue;
+        }
+        if (nom === 'r'){
+          const rPr = hijo(n, 'rPr'); const directo = propsRun(rPr);
+          const r = {...runBase, ...(directo.rStyle ? resolver(directo.rStyle, 'run') : {}), ...directo};
+          const est = estiloRun(r);
+          for (const c of hijos(n)){
+            const cn = c.localName;
+            if (cn === 'fldChar'){ const t = atr(c, 'fldCharType'); if (t === 'begin') campo.push('codigo'); else if (t === 'separate'){ if (campo.length) campo[campo.length - 1] = 'resultado'; } else if (t === 'end') campo.pop(); continue; }
+            if (campo.includes('codigo')) continue;
+            if (cn === 't') añadir(escapar(c.textContent), est);
+            else if (cn === 'tab' || cn === 'ptab') añadir('&emsp;', est);
+            else if (cn === 'br' || cn === 'cr'){ if (atr(c, 'type') === 'page'){ salto = true; } else crudo('<br>'); }
+            else if (cn === 'noBreakHyphen') añadir('-', est);
+            else if (cn === 'sym'){ const ch = parseInt(atr(c, 'char') || '0', 16); if (ch) añadir(escapar(String.fromCharCode(ch >= 0xF000 ? ch - 0xF000 : ch)), est); }
+            else if (cn === 'drawing' || cn === 'pict' || cn === 'object') crudo(imagen(c));
+            else if (cn === 'AlternateContent'){ const ch = hijo(c, 'Choice') || hijo(c, 'Fallback'); if (ch) crudo(imagen(ch)); }
+          }
+          continue;
+        }
+        if (nom === 'fldSimple' || nom === 'ins' || nom === 'smartTag' || nom === 'sdt' || nom === 'sdtContent' || nom === 'customXml' || nom === 'moveTo'){ recorrer(nom === 'sdt' ? (hijo(n, 'sdtContent') || n) : n, enlace); continue; }
+      }
+    };
+    recorrer(p, false);
+    cerrar();
+    return {html, salto};
+  }
+  // Bloques
+  function bloques(cont){
+    let html = '', listas = [];
+    const cerrarListas = () => { while (listas.length) html += '</li></' + listas.pop() + '>'; };
+    const item = (tipo, nivel, contenido) => {
+      nivel = Math.min(nivel, 8);
+      while (listas.length > nivel + 1) html += '</li></' + listas.pop() + '>';
+      if (listas.length === nivel + 1 && listas[nivel] !== tipo) html += '</li></' + listas.pop() + '>';
+      if (listas.length === nivel + 1) html += '</li><li>' + contenido;
+      else { while (listas.length < nivel + 1){ html += `<${tipo}><li>`; listas.push(tipo); } html += contenido; }
+    };
+    for (const n of hijos(cont)){
+      const nom = n.localName;
+      if (nom === 'sdt'){ cerrarListas(); html += bloques(hijo(n, 'sdtContent') || n); continue; }
+      if (nom === 'tbl'){ cerrarListas(); html += tabla(n); continue; }
+      if (nom !== 'p') continue;
+      const pPr = hijo(n, 'pPr'), directo = propsPar(pPr);
+      const idEstilo = directo.estilo || estiloNormal;
+      const par = {...defPar, ...resolver(idEstilo, 'par'), ...directo};
+      const runBase = {...defRun, ...resolver(idEstilo, 'run')};
+      const nivel = nivelTitulo(idEstilo) || (directo.nivel !== undefined && directo.nivel < 3 ? directo.nivel + 1 : 0);
+      if (par.saltoAntes){ cerrarListas(); html += '<div class="salto-pagina" contenteditable="false"></div>'; }
+      const c = contenidoParrafo(n, nivel ? {} : runBase);
+      let st = '';
+      const al = {center: 'center', right: 'right', end: 'right', both: 'justify', distribute: 'justify'}[par.jc];
+      if (al) st += 'text-align:' + al + ';';
+      if (par.lh && Math.abs(par.lh - 1.5) > 0.02) st += 'line-height:' + Math.round(par.lh * 100) / 100 + ';';
+      if (!nivel && par.despues !== undefined && Math.abs(par.despues - 144) > 10) st += 'margin-bottom:' + px(par.despues) + 'px;';
+      if (!nivel && par.antes) st += 'margin-top:' + px(par.antes) + 'px;';
+      const enLista = par.numId && par.numId !== '0' && !nivel;
+      if (!enLista && par.izq) st += 'margin-left:' + px(par.izq) + 'px;';
+      if (par.primera) st += 'text-indent:' + px(par.primera) + 'px;';
+      const attr = st ? ` style="${st}"` : '';
+      if (enLista){
+        if (!c.html && c.salto){ cerrarListas(); html += '<div class="salto-pagina" contenteditable="false"></div>'; continue; }
+        item(tipoLista(par.numId, par.ilvl || 0), par.ilvl || 0, st ? `<span${attr}>${c.html || '<br>'}</span>` : (c.html || '<br>'));
+        if (c.salto){ cerrarListas(); html += '<div class="salto-pagina" contenteditable="false"></div>'; }
+        continue;
+      }
+      cerrarListas();
+      if (!c.html && c.salto){ html += '<div class="salto-pagina" contenteditable="false"></div>'; continue; }
+      const tag = nivel ? 'h' + Math.min(nivel, 3) : 'p';
+      html += `<${tag}${attr}>${c.html || '<br>'}</${tag}>`;
+      if (c.salto) html += '<div class="salto-pagina" contenteditable="false"></div>';
+    }
+    cerrarListas();
+    return html;
+  }
+  function tabla(t){
+    let h = '<table><tbody>';
+    for (const tr of hijos(t).filter(n => n.localName === 'tr')){
+      h += '<tr>';
+      for (const tc of hijos(tr).filter(n => n.localName === 'tc' || n.localName === 'sdt')){
+        const celda = tc.localName === 'sdt' ? hijo(hijo(tc, 'sdtContent'), 'tc') : tc; if (!celda) continue;
+        const tcPr = hijo(celda, 'tcPr');
+        const vm = hijo(tcPr, 'vMerge'); if (vm && (!val(vm) || val(vm) === 'continue')) continue;
+        const span = hijo(tcPr, 'gridSpan') ? +val(hijo(tcPr, 'gridSpan')) : 1;
+        const shd = hijo(tcPr, 'shd'); const fill = shd && atr(shd, 'fill');
+        const est = fill && !/^(auto|FFFFFF)$/i.test(fill) ? ` style="background-color:#${fill}"` : '';
+        let dentro = bloques(celda);
+        const m = dentro.match(/^<p>(.*)<\/p>$/s); if (m && !/<p[ >]/.test(m[1])) dentro = m[1];
+        h += `<td${span > 1 ? ` colspan="${span}"` : ''}${est}>${dentro || '<br>'}</td>`;
+      }
+      h += '</tr>';
+    }
+    return h + '</tbody></table>';
+  }
+  return bloques(doc.getElementsByTagNameNS(W, 'body')[0]);
+}
+// Imágenes "detrás/delante del texto" leídas de un documento: colocarlas respecto a su párrafo
+function colocarImagenesLeidas(){
+  editor.querySelectorAll('img[data-pdy]').forEach(img => {
+    const b = bloqueRaiz(img);
+    img.style.top = Math.round((b && b !== img ? posY(b) : 0) + (+img.dataset.pdy || 0)) + 'px';
+    delete img.dataset.pdy;
+  });
+}
+
 
 async function leerOdt(file){
   await cargarScript(CDN.jszip);
@@ -1211,6 +1514,8 @@ async function leerOdt(file){
   const leerEstilos = d => d.getElementsByTagNameNS(NS.style, 'style').length && [...d.getElementsByTagNameNS(NS.style, 'style')].forEach(e => {
     const nombre = e.getAttributeNS(NS.style, 'name'), padre = e.getAttributeNS(NS.style, 'parent-style-name');
     const tp = e.getElementsByTagNameNS(NS.style, 'text-properties')[0], pp = e.getElementsByTagNameNS(NS.style, 'paragraph-properties')[0];
+    const gp = e.getElementsByTagNameNS(NS.style, 'graphic-properties')[0];
+    const gr = gp ? {wrap: gp.getAttributeNS(NS.style, 'wrap'), run: gp.getAttributeNS(NS.style, 'run-through'), hpos: gp.getAttributeNS(NS.style, 'horizontal-pos')} : null;
     const g = (el, ns, at) => el ? el.getAttributeNS(ns, at) : '';
     let t = '', pr = '', salto = false;
     if (tp){
@@ -1227,10 +1532,15 @@ async function leerOdt(file){
     if (pp){
       const al = g(pp, NS.fo, 'text-align'); if (/center/.test(al)) pr += 'text-align:center;'; else if (/end|right/.test(al)) pr += 'text-align:right;'; else if (/justify/.test(al)) pr += 'text-align:justify;';
       const lh = g(pp, NS.fo, 'line-height'); if (/%$/.test(lh) && parseFloat(lh) !== 150 && parseFloat(lh) !== 100) pr += 'line-height:' + (parseFloat(lh) / 100) + ';';
+      const cm = v => /cm$/.test(v) ? parseFloat(v) * 10 * MM : /mm$/.test(v) ? parseFloat(v) * MM : /in$/.test(v) ? parseFloat(v) * 96 : /pt$/.test(v) ? parseFloat(v) * 96 / 72 : NaN;
+      const mlv = cm(g(pp, NS.fo, 'margin-left')); if (mlv > 0.5) pr += 'margin-left:' + Math.round(mlv) + 'px;';
+      const tiv = cm(g(pp, NS.fo, 'text-indent')); if (Math.abs(tiv) > 0.5) pr += 'text-indent:' + Math.round(tiv) + 'px;';
+      const mtv = cm(g(pp, NS.fo, 'margin-top')); if (mtv > 0.5) pr += 'margin-top:' + Math.round(mtv) + 'px;';
+      const mbv = cm(g(pp, NS.fo, 'margin-bottom')); if (!isNaN(mbv) && Math.abs(mbv - 8) > 1.5) pr += 'margin-bottom:' + Math.round(mbv) + 'px;';
       if (g(pp, NS.fo, 'break-before') === 'page') salto = 'antes';
       if (g(pp, NS.fo, 'break-after') === 'page') salto = 'despues';
     }
-    estilosOdt[nombre] = {t, pr, salto, padre};
+    estilosOdt[nombre] = {t, pr, salto, padre, gr};
   });
   try { const sx = zip.file('styles.xml'); if (sx) leerEstilos(new DOMParser().parseFromString(await sx.async('string'), 'application/xml')); } catch(e){}
   leerEstilos(doc);
@@ -1248,8 +1558,9 @@ async function leerOdt(file){
       if (c.namespaceURI === NS.text){
         switch (c.localName){
           case 'h': {
-            const l = Math.min(parseInt(c.getAttributeNS(NS.text, 'outline-level')) || 1, 3), pr = est(nombreEst, 'pr'), sl = est(nombreEst, 'salto');
-            h += (sl === 'antes' ? SALTO : '') + `<h${l}${pr ? ` style="${pr}"` : ''}>${conv(c) || '<br>'}</h${l}>` + (sl === 'despues' ? SALTO : ''); return;
+            const l = Math.min(parseInt(c.getAttributeNS(NS.text, 'outline-level')) || 1, 3), pr = est(nombreEst, 'pr'), sl = est(nombreEst, 'salto'), tt = est(nombreEst, 't');
+            const dentroH = conv(c);
+            h += (sl === 'antes' ? SALTO : '') + `<h${l}${pr ? ` style="${pr}"` : ''}>${tt && dentroH ? `<span style="${tt}">${dentroH}</span>` : (dentroH || '<br>')}</h${l}>` + (sl === 'despues' ? SALTO : ''); return;
           }
           case 'p': {
             const pr = est(nombreEst, 'pr'), t = est(nombreEst, 't'), sl = est(nombreEst, 'salto');
@@ -1297,7 +1608,17 @@ async function leerOdt(file){
           if (href && imgs[href]){
             const w = c.getAttributeNS(NS.svg, 'width'); let px = '';
             if (/cm$/.test(w)) px = Math.round(parseFloat(w) * 10 * MM); else if (/in$/.test(w)) px = Math.round(parseFloat(w) * 96); else if (/mm$/.test(w)) px = Math.round(parseFloat(w) * MM);
-            h += `<img src="${imgs[href]}" data-ajuste="linea"${px ? ` style="width:${px}px"` : ''}>`;
+            const gr = (estilosOdt[c.getAttributeNS(NS.draw, 'style-name')] || {}).gr;
+            const aCm = v => /cm$/.test(v) ? parseFloat(v) * 10 * MM : /mm$/.test(v) ? parseFloat(v) * MM : /in$/.test(v) ? parseFloat(v) * 96 : 0;
+            let aj = 'linea', alin = '';
+            if (gr && c.getAttributeNS(NS.text, 'anchor-type') !== 'as-char'){
+              if (gr.wrap === 'run-through') aj = gr.run === 'background' ? 'detras' : 'delante';
+              else if (gr.wrap === 'none') { aj = 'bloque'; alin = gr.hpos === 'left' ? 'izq' : gr.hpos === 'right' ? 'der' : 'centro'; }
+              else if (gr.wrap) aj = gr.hpos === 'right' || gr.wrap === 'left' ? 'der' : 'izq';
+            }
+            const abs = aj === 'detras' || aj === 'delante';
+            const st = (px ? `width:${px}px;` : '') + estiloImagenAjuste(aj, alin, abs ? aCm(c.getAttributeNS(NS.svg, 'x')) : 0);
+            h += `<img src="${imgs[href]}" style="${st}" data-ajuste="${aj}"${alin ? ` data-alin="${alin}"` : ''}${abs ? ` data-pdy="${Math.round(aCm(c.getAttributeNS(NS.svg, 'y')))}"` : ''}>`;
           } else h += conv(c);
           return;
         }
@@ -1527,9 +1848,9 @@ function rtfAHtml(rtf){
   const nuevo = () => ({b: 0, i: 0, u: 0, s: 0, va: '', fs: 24, f: null, cf: 0, cb: 0, hl: 0, dest: null, uc: 1});
   let st = nuevo(), fuenteDef = 0;
   const pila = [];
-  let par = {align: '', intbl: false, outline: -1, lh: null};
+  let par = {align: '', intbl: false, outline: -1, lh: null, li: 0, fi: 0, sb: 0, sa: null};
   let html = '', runs = '', txt = '', clave = '', filas = [], fila = [], celda = '', lista = null;
-  let pict = null, fuenteNum = null, fuenteNombre = '', color = {r: 0, g: 0, b: 0}, saltarChars = 0;
+  let pict = null, fuenteNum = null, fuenteNombre = '', color = {r: 0, g: 0, b: 0}, saltarChars = 0, ajusteTxt = '', ajuste = null;
   const dec = new TextDecoder('windows-1252');
   const estiloRun = s => {
     let c = '';
@@ -1543,7 +1864,7 @@ function rtfAHtml(rtf){
     return c;
   };
   const cerrarRun = () => { if (txt){ const t = escapar(txt).replace(/\t/g, '&emsp;'); runs += clave ? `<span style="${clave}">${t}</span>` : t; } txt = ''; };
-  const texto = t => { if (st.dest) { if (st.dest === 'fonttbl') fuenteNombre += t; return; } const k = estiloRun(st); if (k !== clave){ cerrarRun(); clave = k; } txt += t; };
+  const texto = t => { if (st.dest) { if (st.dest === 'fonttbl') fuenteNombre += t; else if (st.dest === 'mytextajuste') ajusteTxt += t; return; } const k = estiloRun(st); if (k !== clave){ cerrarRun(); clave = k; } txt += t; };
   const cerrarLista = () => { if (lista){ html += `<${lista.tipo}>${lista.items.join('')}</${lista.tipo}>`; lista = null; } };
   const cerrarTabla = () => { if (filas.length){ cerrarLista(); html += '<table><tbody>' + filas.map(f => '<tr>' + f.map(c => `<td>${c || '<br>'}</td>`).join('') + '</tr>').join('') + '</tbody></table>'; filas = []; } };
   const finParrafo = () => {
@@ -1560,7 +1881,9 @@ function rtfAHtml(rtf){
       lista.items.push(`<li>${contenido || '<br>'}</li>`); return;
     }
     cerrarLista();
-    const estilo = (par.align ? `text-align:${par.align};` : '') + (par.lh ? `line-height:${par.lh};` : '');
+    const estilo = (par.align ? `text-align:${par.align};` : '') + (par.lh ? `line-height:${par.lh};` : '')
+      + (par.li && par.outline < 0 ? `margin-left:${Math.round(par.li / 15)}px;` : '') + (par.fi ? `text-indent:${Math.round(par.fi / 15)}px;` : '')
+      + (par.sb && par.outline < 0 ? `margin-top:${Math.round(par.sb / 15)}px;` : '') + (par.sa !== null && par.outline < 0 && Math.abs(par.sa - 120) > 10 ? `margin-bottom:${Math.round(par.sa / 15)}px;` : '');
     const a = estilo ? ` style="${estilo}"` : '';
     if (par.outline >= 0 && par.outline < 3) html += `<h${par.outline + 1}${a}>${contenido || '<br>'}</h${par.outline + 1}>`;
     else html += `<p${a}>${contenido || '<br>'}</p>`;
@@ -1577,10 +1900,12 @@ function rtfAHtml(rtf){
           for (let k = 0; k + 1 < hex.length; k += 2) bin += String.fromCharCode(parseInt(hex.substr(k, 2), 16));
           const w = pict.wg ? Math.round(pict.wg / 15) : pict.w, h = pict.hg ? Math.round(pict.hg / 15) : pict.h;
           const s0 = st; st = pila[pila.length - 1]; cerrarRun(); st = s0;
-          runs += `<img src="data:image/${pict.tipo};base64,${btoa(bin)}"${w ? ` style="width:${w}px"` : ''} data-ajuste="linea">`;
+          const aj = ajuste || {aj: 'linea'}; ajuste = null;
+          runs += `<img src="data:image/${pict.tipo};base64,${btoa(bin)}" style="${w ? `width:${w}px;` : ''}${estiloImagenAjuste(aj.aj, aj.alin, aj.left)}" data-ajuste="${aj.aj}"${aj.alin ? ` data-alin="${aj.alin}"` : ''}${aj.aj === 'detras' || aj.aj === 'delante' ? ` data-pdy="${aj.pdy}"` : ''}>`;
         }
         pict = null;
       }
+      if (st.dest === 'mytextajuste' && pila.length && pila[pila.length - 1].dest !== 'mytextajuste'){ const [aj, alin, left, pdy] = ajusteTxt.trim().split(/\s+/); ajuste = {aj, alin: alin === '-' ? '' : alin, left: +left || 0, pdy: +pdy || 0}; }
       if (st.dest === 'fonttbl' && fuenteNum !== null && fuenteNombre.trim()){ fuentes[fuenteNum] = fuenteNombre.replace(/;\s*$/, '').trim(); }
       st = pila.pop() || nuevo(); i++; continue;
     }
@@ -1597,7 +1922,7 @@ function rtfAHtml(rtf){
       if (!m){ i += 2; continue; }
       i += 1 + m[0].length;
       const w = m[1], p = m[2] !== undefined ? parseInt(m[2], 10) : null;
-      if (asterisco){ asterisco = false; if (!['pict'].includes(w)){ st.dest = 'saltar'; continue; } }
+      if (asterisco){ asterisco = false; if (w === 'mytextajuste'){ st.dest = 'mytextajuste'; ajusteTxt = ''; continue; } if (!['pict'].includes(w)){ st.dest = 'saltar'; continue; } }
       if (st.dest === 'saltar') continue;
       if (w === 'bin' && p){ i += p; continue; }
       if (st.dest === 'colortbl'){ if (w === 'red') color.r = p; else if (w === 'green') color.g = p; else if (w === 'blue') color.b = p; colorConValor = true; continue; }
@@ -1614,7 +1939,9 @@ function rtfAHtml(rtf){
         case 'pict': st.dest = 'pict'; pict = {hex: ''}; break;
         case 'deff': fuenteDef = p; break;
         case 'par': case 'sect': finParrafo(); break;
-        case 'pard': par = {align: '', intbl: false, outline: -1, lh: null}; break;
+        case 'pard': par = {align: '', intbl: false, outline: -1, lh: null, li: 0, fi: 0, sb: 0, sa: null}; break;
+        case 'li': par.li = p || 0; break; case 'fi': par.fi = p || 0; break;
+        case 'sb': par.sb = p || 0; break; case 'sa': par.sa = p; break;
         case 'plain': Object.assign(st, {b: 0, i: 0, u: 0, s: 0, va: '', fs: 24, f: null, cf: 0, cb: 0, hl: 0}); break;
         case 'qc': par.align = 'center'; break; case 'qr': par.align = 'right'; break; case 'qj': par.align = 'justify'; break; case 'ql': par.align = ''; break;
         case 'intbl': par.intbl = true; break;
@@ -1847,13 +2174,14 @@ class EscritorDocx {
     if (ctx.estilo) p += `<w:pStyle w:val="${ctx.estilo}"/>`;
     if (ctx.num) p += `<w:numPr><w:ilvl w:val="${Math.min(ctx.num.nivel, 8)}"/><w:numId w:val="${ctx.num.id}"/></w:numPr>`;
     if (ctx.f && ctx.f.pre) p += '<w:shd w:val="clear" w:color="auto" w:fill="F2F2F2"/><w:spacing w:after="0" w:line="240" w:lineRule="auto"/>';
-    else if (ctx.lh || ctx.despues !== undefined){
+    else if (ctx.lh || ctx.despues !== undefined || ctx.antes){
       let at = '';
+      if (ctx.antes) at += ` w:before="${ctx.antes}"`;
       if (ctx.despues !== undefined) at += ` w:after="${ctx.despues}"`;
       if (ctx.lh) at += ` w:line="${Math.round(240 * ctx.lh)}" w:lineRule="auto"`;
       p += `<w:spacing${at}/>`;
     }
-    if (ctx.ind && !ctx.num) p += `<w:ind w:left="${Math.round(ctx.ind)}"/>`;
+    if ((ctx.ind || ctx.primera) && !ctx.num) p += `<w:ind${ctx.ind ? ` w:left="${Math.round(ctx.ind)}"` : ''}${ctx.primera > 0 ? ` w:firstLine="${ctx.primera}"` : ctx.primera < 0 ? ` w:hanging="${-ctx.primera}"` : ''}/>`;
     if (ctx.align) p += `<w:jc w:val="${ctx.align}"/>`;
     return `<w:p>${p ? '<w:pPr>' + p + '</w:pPr>' : ''}${runs}</w:p>`;
   }
@@ -1888,6 +2216,8 @@ class EscritorDocx {
     }
     const ml = parseFloat(st.marginLeft) || parseFloat(st.paddingLeft) || 0;
     if (ml && /px/.test(st.marginLeft || st.paddingLeft)) c2.ind = (c2.ind || 0) + ml * 15;
+    if (st.marginTop !== '' && !el.classList.contains('empuje')){ const mt = /em$/.test(st.marginTop) ? parseFloat(st.marginTop) * 16 : parseFloat(st.marginTop); if (!isNaN(mt)) c2.antes = Math.round(mt * 15); }
+    if (st.textIndent){ const ti = /em$/.test(st.textIndent) ? parseFloat(st.textIndent) * 16 : parseFloat(st.textIndent); if (!isNaN(ti) && ti) c2.primera = Math.round(ti * 15); }
     let out = '';
     if (st.pageBreakBefore === 'always' || st.breakBefore === 'page') out += this.salto();
     if (/^h[1-6]$/.test(t)) { c2.estilo = 'Heading' + Math.min(+t[1], 3); out += this.contenedor(el, c2); }
@@ -1964,7 +2294,7 @@ async function exportarDocx(){
   try {
     cargando(true, 'Generando Word…');
     await cargarScript(CDN.jszip);
-    editor.querySelectorAll('img').forEach(i => { if (i.style.position === 'absolute'){ const b = bloqueRaiz(i); i.dataset.pdy = Math.round(i.offsetTop - (b && b !== i ? posY(b) : 0)); } });
+    anotarPosicionImagenes();
     const raiz = document.createElement('div'); raiz.innerHTML = limpioParaExportar();
     editor.querySelectorAll('img[data-pdy]').forEach(i => delete i.dataset.pdy);
     await Promise.all([...raiz.querySelectorAll('img')].map(i => i.decode ? i.decode().catch(() => {}) : null));
@@ -2074,8 +2404,20 @@ function medidasImagen(img){
   const max = 166 * MM; if (w > max){ h = h * max / w; w = max; }
   return {w: Math.round(w), h: Math.round(h)};
 }
+// Estilo de una imagen según su ajuste de texto (para los lectores de archivos)
+function estiloImagenAjuste(aj, alin, left){
+  if (aj === 'izq') return 'float:left;margin:4px 16px 8px 0;';
+  if (aj === 'der') return 'float:right;margin:4px 0 8px 16px;';
+  if (aj === 'bloque') return 'display:block;margin:' + (alin === 'izq' ? '8px auto 8px 0' : alin === 'der' ? '8px 0 8px auto' : '8px auto') + ';';
+  if (aj === 'detras' || aj === 'delante') return `position:absolute;left:${Math.round(left || 0)}px;z-index:${aj === 'detras' ? -1 : 3};`;
+  return '';
+}
+// Posición vertical de las imágenes detrás/delante del texto respecto a su párrafo
+function anotarPosicionImagenes(){ editor.querySelectorAll('img').forEach(i => { if (i.style.position === 'absolute'){ const b = bloqueRaiz(i); i.dataset.pdy = Math.round(i.offsetTop - (b && b !== i ? posY(b) : 0)); } }); }
 async function prepararRaiz(conNumeros){
+  anotarPosicionImagenes();
   const raiz = document.createElement('div'); raiz.innerHTML = limpioParaExportar(conNumeros);
+  editor.querySelectorAll('img[data-pdy]').forEach(i => delete i.dataset.pdy);
   await Promise.all([...raiz.querySelectorAll('img')].map(i => i.decode ? i.decode().catch(() => {}) : null));
   return raiz;
 }
@@ -2109,7 +2451,9 @@ class EscritorRtf extends EscritorDocx {
     const {w, h} = medidasImagen(img);
     const bytes = b64aBytes(m[2]); let hex = '';
     for (let i = 0; i < bytes.length; i++){ hex += (bytes[i] < 16 ? '0' : '') + bytes[i].toString(16); if (i % 64 === 63) hex += '\n'; }
-    return `{\\pict${/png/i.test(m[1]) ? '\\pngblip' : '\\jpegblip'}\\picw${w}\\pich${h}\\picwgoal${w * 15}\\pichgoal${h * 15}\n${hex}}`;
+    const aj = img.dataset.ajuste || 'linea';
+    const extra = aj !== 'linea' ? `{\\*\\mytextajuste ${aj} ${img.dataset.alin || '-'} ${Math.round(parseFloat(img.style.left) || 0)} ${Math.round(+img.dataset.pdy || 0)}}` : '';
+    return `${extra}{\\pict${/png/i.test(m[1]) ? '\\pngblip' : '\\jpegblip'}\\picw${w}\\pich${h}\\picwgoal${w * 15}\\pichgoal${h * 15}\n${hex}}`;
   }
   parrafo(runs, ctx){
     let p = '\\pard\\plain' + (ctx.enTabla ? '\\intbl' : '') + '\\sa120\\sl' + Math.round(240 * (ctx.lh || 1.5)) + '\\slmult1';
@@ -2130,6 +2474,8 @@ class EscritorRtf extends EscritorDocx {
       p += `\\fi-360\\li${720 * (ctx.num.nivel + 1)}`;
       pre = ctx.num.id === 1 ? '\\u8226?\\tab ' : this.contadores[k] + '.\\tab ';
     } else if (ctx.ind) p += '\\li' + Math.round(ctx.ind);
+    if (ctx.primera && !ctx.num) p += '\\fi' + ctx.primera;
+    if (ctx.antes) p += '\\sb' + ctx.antes;
     if (ctx.despues !== undefined) p += '\\sa' + ctx.despues;
     if (ctx.f && ctx.f.pre) p += '\\f' + this.fuente('Courier New');
     p += {center: '\\qc', right: '\\qr', both: '\\qj'}[ctx.align] || '';
@@ -2208,7 +2554,15 @@ class EscritorOdt extends EscritorDocx {
     const n = this.imgs.length + 1, nombre = `Pictures/imagen${n}.${ext}`;
     this.imgs.push({nombre, datos: m[2], mime: 'image/' + (ext === 'jpg' ? 'jpeg' : ext)});
     const {w, h} = medidasImagen(img);
-    return `<draw:frame draw:name="Imagen${n}" text:anchor-type="as-char" svg:width="${(w / MM / 10).toFixed(3)}cm" svg:height="${(h / MM / 10).toFixed(3)}cm"><draw:image xlink:href="${nombre}" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"/></draw:frame>`;
+    const cm = v => (v / MM / 10).toFixed(3) + 'cm';
+    const aj = img.dataset.ajuste || 'linea', alin = img.dataset.alin || 'centro';
+    let anclaje = 'as-char', props = '', pos = '';
+    if (aj === 'izq') { anclaje = 'paragraph'; props = 'style:wrap="right" style:horizontal-pos="left" style:horizontal-rel="paragraph" style:vertical-pos="top" style:vertical-rel="paragraph" fo:margin-right="0.4cm" fo:margin-bottom="0.2cm"'; }
+    else if (aj === 'der') { anclaje = 'paragraph'; props = 'style:wrap="left" style:horizontal-pos="right" style:horizontal-rel="paragraph" style:vertical-pos="top" style:vertical-rel="paragraph" fo:margin-left="0.4cm" fo:margin-bottom="0.2cm"'; }
+    else if (aj === 'bloque') { anclaje = 'paragraph'; props = `style:wrap="none" style:horizontal-pos="${alin === 'izq' ? 'left' : alin === 'der' ? 'right' : 'center'}" style:horizontal-rel="paragraph" style:vertical-pos="top" style:vertical-rel="paragraph"`; }
+    else if (aj === 'detras' || aj === 'delante') { anclaje = 'paragraph'; props = `style:wrap="run-through" style:run-through="${aj === 'detras' ? 'background' : 'foreground'}" style:horizontal-pos="from-left" style:horizontal-rel="paragraph" style:vertical-pos="from-top" style:vertical-rel="paragraph"`; pos = ` svg:x="${cm(parseFloat(img.style.left) || 0)}" svg:y="${cm(+img.dataset.pdy || 0)}"`; }
+    const est = props ? ` draw:style-name="${this.estilo(this.estP, 'G', 'graphic', `<style:graphic-properties ${props}/>`)}"` : '';
+    return `<draw:frame draw:name="Imagen${n}"${est} text:anchor-type="${anclaje}"${pos} svg:width="${cm(w)}" svg:height="${cm(h)}" draw:z-index="${aj === 'detras' ? 0 : n}"><draw:image xlink:href="${nombre}" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"/></draw:frame>`;
   }
   parrafo(runs, ctx){
     let pp = '';
@@ -2217,6 +2571,8 @@ class EscritorOdt extends EscritorDocx {
     if (ctx.lh) pp += ` fo:line-height="${Math.round(ctx.lh * 100)}%"`;
     if (ctx.despues !== undefined) pp += ` fo:margin-bottom="${(ctx.despues / 567).toFixed(3)}cm"`;
     if (ctx.ind && !ctx.num) pp += ` fo:margin-left="${(ctx.ind / 567).toFixed(3)}cm"`;
+    if (ctx.primera) pp += ` fo:text-indent="${(ctx.primera / 567).toFixed(3)}cm"`;
+    if (ctx.antes) pp += ` fo:margin-top="${(ctx.antes / 567).toFixed(3)}cm"`;
     if (ctx.f && ctx.f.pre) pp += ' fo:background-color="#F2F2F2"';
     if (ctx.estilo){
       const n = +ctx.estilo.slice(7);
@@ -2271,6 +2627,7 @@ async function exportarOdt(){
     let auto = '';
     w.estT.forEach(e => { auto += `<style:style style:name="${e.nombre}" style:family="text">${e.props}</style:style>`; });
     w.estP.forEach(e => {
+      if (e.familia === 'graphic'){ auto += `<style:style style:name="${e.nombre}" style:family="graphic">${e.props}</style:style>`; return; }
       const [props, h] = e.props.split('|');
       if (h){ const n = +h.slice(1); const s = estilos['h' + n]; const jc = {center: 'center', right: 'end', justify: 'justify'}[s.align];
         let pp = props || ''; if (jc && !/fo:text-align/.test(pp)) pp = pp ? pp.replace('<style:paragraph-properties', `<style:paragraph-properties fo:text-align="${jc}"`) : `<style:paragraph-properties fo:text-align="${jc}"/>`;

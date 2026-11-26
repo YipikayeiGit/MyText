@@ -1,5 +1,5 @@
 {
-  "version": "1.0.8",
+  "version": "1.0.9",
   "minApp": "1.0.0",
-  "notas": "PDF: Ctrl+S al editar texto, la vista muestra lo guardado y se puede volver a editar"
+  "notas": "Se conserva todo el formato al guardar y volver a abrir (Word, ODT, RTF, DOC, HTML)"
 }
