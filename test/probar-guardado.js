@@ -143,7 +143,7 @@ async function probarFormato(ext) {
   ({ app, win } = await abrirPrograma(archivo));
   await win.addScriptTag({ content: SCRIPT });
   const fallos = await win.evaluate(() => window.__verificarFormato());
-  await registrar(`.${ext} formato (22 comprobaciones)`, !fallos.length && !antes.length, fallos.length ? 'se pierde: ' + fallos.join(', ') : (antes.length ? 'no se aplicó: ' + antes.join(', ') : 'se conserva todo'), win);
+  await registrar(`.${ext} formato (23 comprobaciones)`, !fallos.length && !antes.length, fallos.length ? 'se pierde: ' + fallos.join(', ') : (antes.length ? 'no se aplicó: ' + antes.join(', ') : 'se conserva todo'), win);
   await cerrarPrograma(app);
 }
 
@@ -152,7 +152,7 @@ async function probarFormato(ext) {
   for (const ext of formatos) { try { await probarCtrlS(ext); } catch (e) { await registrar(`.${ext} Ctrl+S`, false, e.message.split('\n')[0]); } }
   for (const ext of ['docx', 'doc', 'txt']) { try { await probarGuardarAlCerrar(ext); } catch (e) { await registrar(`.${ext} Guardar al cerrar`, false, e.message.split('\n')[0]); } }
   for (const ext of ['docx', 'odt']) { try { await probarBotonGuardar(ext); } catch (e) { await registrar(`.${ext} Archivo → Guardar`, false, e.message.split('\n')[0]); } }
-  for (const ext of ['docx', 'doc', 'odt', 'rtf', 'html']) { try { await probarFormato(ext); } catch (e) { await registrar(`.${ext} formato (22 comprobaciones)`, false, e.message.split('\n')[0]); } }
+  for (const ext of ['docx', 'doc', 'odt', 'rtf', 'html']) { try { await probarFormato(ext); } catch (e) { await registrar(`.${ext} formato (23 comprobaciones)`, false, e.message.split('\n')[0]); } }
   try { await probarPdf(); } catch (e) { await registrar('.pdf editar texto + Ctrl+S', false, e.message.split('\n')[0]); }
   const fallos = resultados.filter(r => !r.ok);
   console.log(`\n${resultados.length - fallos.length} de ${resultados.length} pruebas correctas`);

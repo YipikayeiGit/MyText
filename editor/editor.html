@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
 <title>MyText</title>
-<meta name="mytext-version" content="1.0.9">
+<meta name="mytext-version" content="1.0.10">
 <style>
   :root{
     --bg:#e6e8ec; --bar:#ffffff; --line:#d5d9e0; --ink:#1f2430; --muted:#6b7280;
@@ -388,10 +388,10 @@
   <label class="color" title="Resaltado"><span>🖍</span><span class="barrita" id="barritaFondo" style="background:#ffe26a"></span><input type="color" id="colorFondo" value="#ffe26a"></label>
   <span class="sep"></span>
 
-  <button data-cmd="justifyLeft" title="Alinear a la izquierda">⯇</button>
-  <button data-cmd="justifyCenter" title="Centrar">≡</button>
-  <button data-cmd="justifyRight" title="Alinear a la derecha">⯈</button>
-  <button data-cmd="justifyFull" title="Justificar">☰</button>
+  <button data-cmd="justifyLeft" title="Alinear a la izquierda (Ctrl+L)">⯇</button>
+  <button data-cmd="justifyCenter" title="Centrar (Ctrl+E) — pulsa otra vez para quitarlo">≡</button>
+  <button data-cmd="justifyRight" title="Alinear a la derecha (Ctrl+D) — pulsa otra vez para quitarlo">⯈</button>
+  <button data-cmd="justifyFull" title="Justificar (Ctrl+J) — pulsa otra vez para quitarlo">☰</button>
   <span class="sep"></span>
 
   <button data-cmd="insertUnorderedList" title="Viñetas">•≡</button>
@@ -505,11 +505,38 @@ function escapar(t){ return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace
 function textoAHtml(t){
   return t.replace(/\r\n?/g,'\n').split(/\n{2,}/).map(p => '<p>' + escapar(p).replace(/\n/g,'<br>') + '</p>').join('');
 }
+// Alineación: pulsar la que ya tiene el párrafo la quita (vuelve a la izquierda), como en Word
+const ALINEACIONES = {justifyLeft: '', justifyCenter: 'center', justifyRight: 'right', justifyFull: 'justify'};
+const normalAlin = v => (v === 'center' || v === 'right' || v === 'justify') ? v : (v === 'end' ? 'right' : '');
+function alinearParrafos(c){
+  let bloques = parrafosSeleccion();
+  if (!bloques.length){ document.execCommand('formatBlock', false, '<p>'); bloques = parrafosSeleccion(); }
+  if (!bloques.length) return;
+  let objetivo = ALINEACIONES[c];
+  if (objetivo && bloques.every(b => normalAlin(getComputedStyle(b).textAlign) === objetivo)) objetivo = '';
+  bloques.forEach(b => {
+    // Si la alineación viene de un contenedor, se pasa a sus párrafos para poder cambiar solo este
+    let a = b.parentElement;
+    while (a && a !== editor){
+      if (a.style.textAlign){
+        const heredada = a.style.textAlign; a.style.textAlign = '';
+        a.querySelectorAll(SELECTOR_PARRAFO).forEach(h => { if (!h.style.textAlign && !h.querySelector(SELECTOR_PARRAFO)) h.style.textAlign = heredada; });
+        if (!a.getAttribute('style')) a.removeAttribute('style');
+      }
+      a = a.parentElement;
+    }
+    b.style.textAlign = objetivo;
+    b.removeAttribute('align');
+    if (!b.getAttribute('style')) b.removeAttribute('style');
+  });
+  actualizar(); estadoBotones();
+}
 function cmd(c, v = null){
   const sa = getSelection();
   if (!sa.rangeCount || !editor.contains(sa.anchorNode)) restaurarSeleccion(); else editor.focus();
   const t = tituloEnSeleccion();
   if (t && aplicarATitulo(t.tagName.toLowerCase(), c, v)) return;
+  if (ALINEACIONES[c] !== undefined){ alinearParrafos(c); return; }
   document.execCommand(c, false, v);
   if (c === 'formatBlock' || c === 'insertHTML') limpiarTitulos();
   actualizar();
@@ -614,9 +641,9 @@ function aplicarATitulo(nivel, c, v){
     case 'fontName': s.font = v; break;
     case 'fontSize': s.size = TAM_SELECT[v] || s.size; break;
     case 'justifyLeft': s.align = ''; break;
-    case 'justifyCenter': s.align = 'center'; break;
-    case 'justifyRight': s.align = 'right'; break;
-    case 'justifyFull': s.align = 'justify'; break;
+    case 'justifyCenter': s.align = s.align === 'center' ? '' : 'center'; break;
+    case 'justifyRight': s.align = s.align === 'right' ? '' : 'right'; break;
+    case 'justifyFull': s.align = s.align === 'justify' ? '' : 'justify'; break;
     case 'removeFormat': estilos[nivel] = {...ESTILOS_DEF[nivel]}; break;
     case 'insertOrderedList': case 'insertUnorderedList':
       if (!numerarTitulos){ numerarTitulos = true; aplicarEstilos(); }
@@ -755,7 +782,12 @@ function mostrarInterlineado(){
 
 function estadoBotones(){
   try { mostrarInterlineado(); } catch(e){}
-  ['bold','italic','underline','strikeThrough','superscript','subscript','justifyLeft','justifyCenter','justifyRight','justifyFull','insertUnorderedList','insertOrderedList']
+  try {
+    const b0 = parrafosSeleccion()[0];
+    const al = b0 ? normalAlin(getComputedStyle(b0).textAlign) : null;
+    Object.entries(ALINEACIONES).forEach(([c, v]) => document.querySelectorAll('.herramientas [data-cmd="' + c + '"]').forEach(b => b.classList.toggle('activo', al !== null && al === v)));
+  } catch(e){}
+  ['bold','italic','underline','strikeThrough','superscript','subscript','insertUnorderedList','insertOrderedList']
     .forEach(c => {
       let on = false; try { on = document.queryCommandState(c); } catch(e){}
       document.querySelectorAll('.herramientas [data-cmd="'+c+'"]').forEach(b => b.classList.toggle('activo', on));
@@ -3128,6 +3160,10 @@ editor.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey){
     const m = {b:'bold', i:'italic', u:'underline'}[e.key.toLowerCase()];
     if (m && tituloEnSeleccion()){ e.preventDefault(); cmd(m); return; }
+  }
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey){
+    const atajo = {j: 'justifyFull', e: 'justifyCenter', d: 'justifyRight', l: 'justifyLeft'}[e.key.toLowerCase()];
+    if (atajo){ e.preventDefault(); cmd(atajo); return; }
   }
   if (e.key === 'Tab'){
     e.preventDefault();

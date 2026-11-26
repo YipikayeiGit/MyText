@@ -26,7 +26,7 @@
       '<p>Parrafo centrado</p><p>Parrafo justificado con bastante texto para que se note la justificacion en varias lineas del documento de prueba.</p><p>Parrafo a la derecha</p>' +
       `<p>${PALABRAS}</p>` +
       '<p>Interlineado doble</p><p>Parrafo con sangria</p><p>Espacio despues amplio</p>' +
-      '<p>Vineta primera</p><p>Numero primero</p><p>Imagen: aqui</p><p>Final del documento</p>';
+      '<p>Parrafo desjustificado</p><p>Vineta primera</p><p>Numero primero</p><p>Imagen: aqui</p><p>Final del documento</p>';
     actualizar();
     cursorEn('centrado'); cmd('justifyCenter');
     cursorEn('justificado'); cmd('justifyFull');
@@ -40,6 +40,7 @@
     seleccionar('GRANDE'); cmd('fontSize', '6');
     seleccionar('GEORGIA'); cmd('fontName', 'Georgia');
     seleccionar('SUPERINDICE'); cmd('superscript');
+    cursorEn('desjustificado'); cmd('justifyFull'); cmd('justifyFull');   // justificar y quitarlo
     cursorEn('Interlineado'); aplicarInterlineado('2');
     cursorEn('sangria'); cmd('indent');
     cursorEn('Espacio despues'); aplicarInterlineado('esp:1.5em');
@@ -68,6 +69,7 @@
     comprobar('centrado', cs(b('centrado')).textAlign === 'center');
     comprobar('justificado', cs(b('justificado')).textAlign === 'justify');
     comprobar('alineado a la derecha', cs(b('derecha')).textAlign === 'right');
+    comprobar('quitar justificado', !['justify', 'center', 'right'].includes(cs(b('desjustificado')).textAlign));
     comprobar('negrita', +cs(e('NEGRITA')).fontWeight >= 600);
     comprobar('cursiva', cs(e('CURSIVA')).fontStyle === 'italic');
     comprobar('subrayado', ancestros(e('SUBRAYADO'), c => (c.textDecorationLine || '').includes('underline')));
